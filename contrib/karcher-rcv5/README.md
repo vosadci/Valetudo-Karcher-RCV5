@@ -192,6 +192,17 @@ ssh root@<robot-ip> /userdata/valetudo/karcher-cloud-switch.sh valetudo  # back 
 Whichever you choose is what the robot boots into from then on — see "The
 mode file" below for why that's reliable across reboots.
 
+**Works regardless of which region the robot was paired in.** `valetudo`
+mode's `/etc/hosts` redirect targets whatever `http_host`/`mqtt_host` are
+*currently* in the robot's own `/userdata/config/wifi.conf` — the exact
+hostnames `aiot_client` itself connects to (confirmed via disassembly of
+its `loadWifiConfig()`), re-read fresh every time this runs. A robot paired
+through the real app in any region ends up with real region-specific
+values there; a robot provisioned through `provision-wifi.py` ends up with
+whatever that script wrote. Either way, the redirect matches what's
+actually on disk — this only falls back to hardcoded EU values (with a
+printed warning) if `wifi.conf` is somehow missing or unreadable.
+
 ## Uninstalling
 
 From `contrib/karcher-rcv5/`:
@@ -241,6 +252,7 @@ current state plus what you can do next:
 manage.sh                    # status + contextual menu (also: help)
 manage.sh activate           # arm the overlay, patch the gate, switch to valetudo mode
 manage.sh deactivate         # switch back to the real Kärcher cloud
+manage.sh wifi [ssid]        # reconfigure WiFi (password always prompted) — see below
 manage.sh uninstall [--purge]
 ```
 
@@ -400,6 +412,18 @@ a typo'd password can't strand the robot on the next reboot. Reports the assigne
 done. Uses `adb`, not `ssh` — unlike every other script here, since the whole reason this
 one exists is that the reset just killed network connectivity.
 
+Also ensures `/userdata/config/wifi.conf` has the cloud-pairing fields
+`uid`/`key`/`http_host`/`mqtt_host`/`mqtt_port`/`district` — filling in only
+whichever are genuinely missing (safe, non-account-identifying placeholders for
+`uid`/`key`, real EU hostnames for the rest — never a fake/unresolvable one,
+which would permanently break `karcher-cloud-switch.sh cloud`), never touching
+real values already there. Without at least `http_host`/`mqtt_host` present,
+`aiot_client` has nowhere to connect to at all, so it never even attempts the
+connection `karcher-cloud-switch.sh valetudo`'s redirect is meant to intercept
+— Valetudo would receive zero communication from it, not just be
+"unprotected." `manage.sh wifi` does the same thing on-device — the two are
+meant to be fully interchangeable, neither requiring the other.
+
 **Caveat**: a separate vendor process, `wifiManager` (started later in boot than the
 `S66_wifi`/`wpa_supplicant` service above), also has code paths that rewrite this same
 config file (`remove_network all`, `killall wpa_supplicant`, rebuilding it from a `_tmp`
@@ -407,7 +431,56 @@ copy) — under conditions this project hasn't fully mapped. If the connection d
 survive a *subsequent* reboot (e.g. the one `activate.sh`'s first run triggers), re-check
 with `adb shell wpa_cli -i wlan0 status` before assuming something else is wrong.
 
-What it does under the hood, and how to do it by hand if you don't have this checkout —
+**Connected only via `adb shell` with no laptop checkout, but Valetudo is already
+installed?** `manage.sh wifi [ssid]` (see "If you only have the robot, not this
+checkout" above) is the same stage/verify/save logic — including ensuring
+`wifi.conf`'s cloud-pairing fields exist, see `configure-wifi.sh` above for why
+that matters — run on-device, no `adb push` needed, works identically over
+`adb shell` or `ssh`:
+
+```sh
+adb shell /userdata/valetudo/manage.sh wifi
+```
+
+**No root, no adb, no laptop checkout of the robot at all — just WiFi range?**
+`provision-wifi.py` speaks the official Kärcher app's own SoftAP pairing protocol
+directly, reverse-engineered from a real capture (see its own header comment for
+the full protocol writeup). Works on a robot that's never been rooted or even
+paired before — the other two options above both assume root access already
+exists. From `contrib/karcher-rcv5/`:
+
+```sh
+python3 provision-wifi.py
+```
+
+Trigger the robot's onboarding hotspot with the two-top-buttons hold, join it
+from your Mac's WiFi settings, then run the script. It only prompts for the
+home WiFi SSID/password — the robot also requires five cloud-pairing fields
+to be *present* (never validates their content, confirmed via disassembly),
+but the script fills those in automatically rather than prompting, since
+every extra prompt eats into the timing window below.
+
+**Account safety**: `uid` is which Kärcher cloud *account* ends up owning the
+robot — not a robot identifier — and this toolkit supports switching a robot
+back to real cloud mode later (`karcher-cloud-switch.sh cloud`). Because of
+that, `uid`/`key` default to freshly-generated placeholders that can never be
+mistaken for a real account, never a real captured value. If you want to
+preserve a specific robot's real prior account link, read its actual `uid`
+from `/userdata/config/wifi.conf` over ssh *before* triggering the reset (the
+reset wipes it from the robot itself), then pass it as `RCV5_UID=... python3
+provision-wifi.py` (also: `RCV5_SSID`, `RCV5_PWD`, `RCV5_KEY`,
+`RCV5_HTTP_HOST`, `RCV5_MQTT_HOST`, `RCV5_MQTT_PORT`, `RCV5_DISTRICT` — never
+pass these as command-line args, only env vars or the interactive prompts).
+
+**Timing matters**: the robot's pairing socket only stays open for about 7
+seconds starting ~2s after the button trigger, and it's a one-shot window,
+not recurring — the script walks you through this explicitly (answer every
+prompt first, *then* it tells you exactly when to press the buttons,
+immediately before it starts retrying the connection). Needs the
+`cryptography` package (see "Prerequisites" above — same one `gen_cert.py`
+needs, not a new dependency).
+
+What it does under the hood, and how to do it by hand if you don't have either —
 same `wpa_cli` sequence, run directly over `adb shell`:
 
 ```sh
@@ -444,8 +517,9 @@ through the official Kärcher app's SoftAP flow immediately fixed it.
 **If a robot recovered this way connects and uploads fine but ignores every command
 from the UI while the physical button still works, don't keep debugging Valetudo —
 re-pair it through the official app first and update firmware**, then re-run 
-`karcher-cloud-switch.sh valetudo` (it never touches `wifi.conf`, so the fresh 
-pairing carries over).
+`karcher-cloud-switch.sh valetudo` (it only *reads* `wifi.conf` — to pick the
+right hosts to redirect, see "Day-to-day: switching modes" above — never
+writes it, so the fresh pairing carries over).
 
 This is exactly the class of problem `install.sh`'s firmware check (see "Installing
 on the robot" above) now catches immediately and by name, instead of surfacing later

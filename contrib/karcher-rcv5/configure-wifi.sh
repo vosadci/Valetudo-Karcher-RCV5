@@ -17,6 +17,16 @@
 # password containing '"', '$', a backtick, or a single quote would be a
 # real risk to get wrong that way. Built once, safely, here instead.
 #
+# Also ensures /userdata/config/wifi.conf has the cloud-pairing fields
+# (uid/key/http_host/mqtt_host/mqtt_port/district) aiot_client needs to
+# even attempt a connection at all — filling in only whichever are
+# missing, never touching real ones already there. Without this, a
+# never-paired robot would end up connected to WiFi but with nowhere for
+# aiot_client to connect to, meaning Valetudo would receive zero
+# communication from it even after activation. See manage.sh's
+# ensure_wifi_conf_cloud_fields() for the full reasoning (same logic,
+# duplicated — this runs over adb shell, that runs natively on-device).
+#
 # Staged, then verified, then saved — never the other way around. The
 # on-device sequence stages the network (add/set/enable/select) and prints
 # an explicit "STAGED_OK" line, WITHOUT calling save_config. This Mac-side
@@ -182,6 +192,27 @@ case "$SAVE_OUTPUT" in
         exit 1
         ;;
 esac
+
+echo "== Ensuring wifi.conf has the cloud-pairing fields Valetudo needs =="
+# Fills in any MISSING cloud-pairing fields in wifi.conf on the robot,
+# never touching ones that already exist -- see manage.sh's do_wifi()
+# ensure_wifi_conf_cloud_fields() for the full reasoning (duplicated here,
+# same as every other piece of logic shared between the Mac-side and
+# on-device tools in this project, since a Mac-side bash script can't
+# literally share code with a robot-side sh one). Run as a single adb
+# shell command rather than pushing a separate script file, since it's a
+# one-shot handful of lines.
+adb shell '
+WIFI_CONF="/userdata/config/wifi.conf"
+mkdir -p "$(dirname "$WIFI_CONF")" 2>/dev/null || true
+[ -f "$WIFI_CONF" ] || touch "$WIFI_CONF"
+grep -q "^uid=" "$WIFI_CONF" || echo "uid=unpaired-$$-$(date +%s)" >> "$WIFI_CONF"
+grep -q "^key=" "$WIFI_CONF" || echo "key=k$(date +%s)-$$" >> "$WIFI_CONF"
+grep -q "^http_host=" "$WIFI_CONF" || echo "http_host=eu-cdndevaiot.3irobotix.net" >> "$WIFI_CONF"
+grep -q "^mqtt_host=" "$WIFI_CONF" || echo "mqtt_host=eu-gamqttaiot.3irobotix.net" >> "$WIFI_CONF"
+grep -q "^mqtt_port=" "$WIFI_CONF" || echo "mqtt_port=8883" >> "$WIFI_CONF"
+grep -q "^district=" "$WIFI_CONF" || echo "district=DEU" >> "$WIFI_CONF"
+' >/dev/null 2>&1 || warn "WARNING: could not ensure wifi.conf cloud fields — check by hand: adb shell cat /userdata/config/wifi.conf"
 
 ROBOT_IP="$(adb shell "ifconfig wlan0" 2>/dev/null | sed -n 's/.*inet addr:\([0-9.]*\).*/\1/p' | head -1 | tr -d '\r')"
 if [ -z "$ROBOT_IP" ]; then

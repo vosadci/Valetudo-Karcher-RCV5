@@ -10,8 +10,28 @@
 # contextual "what can I do right now" menu so the workflow knowledge that
 # would otherwise only live in README.md is discoverable on-device.
 #
-# Usage: manage.sh {status|activate|deactivate|uninstall [--purge]|help}
+# Usage: manage.sh {status|activate|deactivate|wifi [ssid]|uninstall [--purge]|help}
 #        (no args, or an unrecognized one, behaves like `help`)
+#
+# `wifi` closes a specific gap: configure-wifi.sh (the Mac-side, adb-based
+# WiFi recovery tool — see README.md "Recovering from a WiFi/config reset")
+# isn't itself copied to the robot on install, so someone connected only via
+# `adb shell` (no laptop checkout, the exact situation a WiFi reset causes)
+# had no on-device equivalent. This is that equivalent — same stage/verify/
+# save design (never trusts wpa_cli's exit code, only its text reply; never
+# calls save_config until wpa_state=COMPLETED is actually confirmed; removes
+# the staged network if it never connects, so a reboot falls back to the
+# last-known-good config — but NOT if it connects and only save_config then
+# fails, since at that point removing it would sever a live connection),
+# adapted to run locally instead of over adb push/shell. It works
+# identically over ssh or `adb shell` — manage.sh has no transport of its
+# own, it's just a file on disk.
+#
+# Also ensures /userdata/config/wifi.conf has the cloud-pairing fields
+# aiot_client needs to attempt a connection at all (see
+# ensure_wifi_conf_cloud_fields() below) — this and configure-wifi.sh are
+# meant to be fully equivalent, interchangeable ways to configure WiFi
+# (external, over adb, vs. on-device), neither requiring the other.
 
 set -eu
 
@@ -81,7 +101,7 @@ print_status_and_menu() {
         echo "  manage.sh activate     — set up and switch into valetudo mode"
     fi
     echo
-    echo "Always available: manage.sh status, manage.sh uninstall [--purge]"
+    echo "Always available: manage.sh status, manage.sh wifi [ssid], manage.sh uninstall [--purge]"
 }
 
 # --- activate -----------------------------------------------------------
@@ -121,6 +141,163 @@ do_activate() {
 
 do_deactivate() {
     "$CCS" cloud
+}
+
+# --- wifi -------------------------------------------------------------
+
+WIFI_CONF="/userdata/config/wifi.conf"
+
+# Fills in any MISSING cloud-pairing fields in wifi.conf, never touching
+# ones that already exist -- so a robot that's already been paired (via the
+# app, or via provision-wifi.py) keeps whatever real values it has, while a
+# never-paired robot gets safe placeholders instead of being left with no
+# working config at all (without SOME http_host/mqtt_host, aiot_client has
+# nowhere to connect to, which means it never even attempts the connection
+# that karcher-cloud-switch.sh's redirect is designed to intercept --
+# Valetudo would receive zero communication from it, not just be
+# "unprotected"). uid is which cloud ACCOUNT ends up owning the robot
+# (confirmed in the app's own WifiDataBean constructor), so its placeholder
+# is random and deliberately NOT shaped like a real 19-digit numeric
+# Kärcher account id -- same reasoning as provision-wifi.py's
+# generate_placeholder_uid(), duplicated here since this is sh, not
+# Python. http_host/mqtt_host use the same real EU defaults
+# provision-wifi.py does, NOT a fake/invalid hostname -- an unresolvable
+# placeholder would permanently break `karcher-cloud-switch.sh cloud`
+# (aiot_client could never resolve it again even with the redirect
+# removed), which is strictly worse than the narrow, low-consequence
+# window this is meant to close.
+ensure_wifi_conf_cloud_fields() {
+    mkdir -p "$(dirname "$WIFI_CONF")" 2>/dev/null || true
+    [ -f "$WIFI_CONF" ] || touch "$WIFI_CONF"
+    grep -q '^uid=' "$WIFI_CONF" || echo "uid=unpaired-$$-$(date +%s)" >> "$WIFI_CONF"
+    grep -q '^key=' "$WIFI_CONF" || echo "key=k$(date +%s)-$$" >> "$WIFI_CONF"
+    grep -q '^http_host=' "$WIFI_CONF" || echo "http_host=eu-cdndevaiot.3irobotix.net" >> "$WIFI_CONF"
+    grep -q '^mqtt_host=' "$WIFI_CONF" || echo "mqtt_host=eu-gamqttaiot.3irobotix.net" >> "$WIFI_CONF"
+    grep -q '^mqtt_port=' "$WIFI_CONF" || echo "mqtt_port=8883" >> "$WIFI_CONF"
+    grep -q '^district=' "$WIFI_CONF" || echo "district=DEU" >> "$WIFI_CONF"
+}
+
+# Mirrors configure-wifi.sh's stage/verify/save design (see that script's
+# own header comment for the full reasoning) minus the adb push/shell
+# wrapper — this runs directly on the robot, so there's no second shell
+# boundary to cross and no need for its shquote() escaping: $ssid/$password
+# are used here as plain shell variables, not spliced as literal text into
+# a separately-interpreted generated script, so normal "$var" quoting is
+# already exactly correct regardless of what characters they contain.
+#
+# POSIX `read` has no `-s`/`-p` (bash-only; confirmed by direct test against
+# dash: `read -s` errors "Illegal option -s") — stty -echo/echo stands in
+# for -s, plain printf stands in for -p.
+do_wifi() {
+    if ! pidof wpa_supplicant >/dev/null 2>&1; then
+        echo "ERROR: wpa_supplicant is not running — something else is wrong first." >&2
+        exit 1
+    fi
+
+    ssid="${1:-}"
+    if [ -z "$ssid" ]; then
+        printf 'WiFi SSID: '
+        IFS= read -r ssid
+    fi
+    [ -n "$ssid" ] || { echo "ERROR: SSID cannot be empty" >&2; exit 1; }
+
+    NET_ID=""
+    STTY_OFF=no
+    wifi_cleanup() {
+        # Covers the whole staged window, not just the password prompt:
+        # armed before the password is read, only disarmed after
+        # save_config actually confirms OK. Any failure in between —
+        # read, staging, verify, save — leaves the robot's prior config
+        # untouched on the next reboot.
+        if [ "$STTY_OFF" = yes ]; then
+            stty echo 2>/dev/null || true
+        fi
+        if [ -n "$NET_ID" ]; then
+            wpa_cli -i wlan0 remove_network "$NET_ID" >/dev/null 2>&1 || true
+        fi
+    }
+    trap wifi_cleanup EXIT
+
+    printf 'WiFi password (not echoed): '
+    stty -echo 2>/dev/null || true
+    STTY_OFF=yes
+    IFS= read -r password
+    stty echo 2>/dev/null || true
+    STTY_OFF=no
+    echo
+    [ -n "$password" ] || { echo "ERROR: password cannot be empty" >&2; exit 1; }
+
+    # wpa_cli can reply "FAIL" while still exiting 0 — every call here is
+    # checked by its actual text reply, never by $?.
+    run_wpa() {
+        out="$(wpa_cli -i wlan0 "$@" 2>&1)"
+        case "$out" in
+            *FAIL*) echo "ERROR: wpa_cli $* -> $out" >&2; exit 1 ;;
+        esac
+        printf '%s' "$out"
+    }
+
+    echo "== Staging network (not yet saved to disk) =="
+    NET_ID="$(run_wpa add_network)"
+    run_wpa set_network "$NET_ID" ssid "\"$ssid\"" >/dev/null
+    run_wpa set_network "$NET_ID" psk "\"$password\"" >/dev/null
+    run_wpa enable_network "$NET_ID" >/dev/null
+    run_wpa select_network "$NET_ID" >/dev/null
+    echo "OK: network staged (id $NET_ID) — not yet saved to disk"
+
+    echo "== Verifying (polling, not a blind sleep) =="
+    connected=no
+    i=0
+    while [ "$i" -lt 8 ]; do
+        if wpa_cli -i wlan0 status 2>/dev/null | grep -q "^wpa_state=COMPLETED"; then
+            connected=yes
+            break
+        fi
+        sleep 2
+        i=$((i + 1))
+    done
+
+    if [ "$connected" != yes ]; then
+        echo "ERROR: wpa_state never reached COMPLETED after ~15s." >&2
+        echo "Removing the staged (unsaved) network — the robot's previous config is" >&2
+        echo "untouched. To see what actually happened: wpa_cli -i wlan0 status" >&2
+        exit 1
+    fi
+    echo "OK: wpa_state=COMPLETED"
+
+    SAVE_OUTPUT="$(wpa_cli -i wlan0 save_config 2>&1)"
+    case "$SAVE_OUTPUT" in
+        *OK*)
+            echo "OK: configuration saved to disk"
+            NET_ID=""
+            trap - EXIT
+            ;;
+        *)
+            # Clear NET_ID (not the whole trap) before exiting: the network
+            # is live and selected right now (wpa_state=COMPLETED above),
+            # just not persisted — removing it here would sever the very
+            # connection this error says is still up.
+            NET_ID=""
+            echo "ERROR: save_config did not reply OK (got: $SAVE_OUTPUT)." >&2
+            echo "Connected right now but this may not survive a reboot. Retry by hand:" >&2
+            echo "  wpa_cli -i wlan0 save_config" >&2
+            exit 1
+            ;;
+    esac
+
+    echo "== Ensuring wifi.conf has the cloud-pairing fields Valetudo needs =="
+    ensure_wifi_conf_cloud_fields
+
+    ROBOT_IP="$(ifconfig wlan0 2>/dev/null | sed -n 's/.*inet addr:\([0-9.]*\).*/\1/p' | head -1)"
+    if [ -n "$ROBOT_IP" ]; then
+        echo "manage.sh wifi complete. Robot is on the network at: $ROBOT_IP"
+    else
+        echo "Connected, but could not parse an IP from 'ifconfig wlan0'. Check by hand:"
+        echo "  ifconfig wlan0"
+    fi
+    echo "NOTE: a separate vendor process (wifiManager) also manages this same config file"
+    echo "under conditions we haven't fully mapped. If this doesn't survive a later reboot,"
+    echo "re-check with: wpa_cli -i wlan0 status"
 }
 
 # --- uninstall ------------------------------------------------------------
@@ -185,6 +362,7 @@ case "${1:-help}" in
     status) print_status_and_menu ;;
     activate) do_activate ;;
     deactivate) do_deactivate ;;
+    wifi) shift; do_wifi "${1:-}" ;;
     uninstall) shift; do_uninstall "${1:-}" ;;
     help|*) print_status_and_menu ;;
 esac

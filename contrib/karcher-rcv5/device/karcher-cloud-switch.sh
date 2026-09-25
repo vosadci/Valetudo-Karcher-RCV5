@@ -45,9 +45,43 @@ GDROOT_TARGET="/oem/sysconf/gdroot-g2.crt"
 # for its own logic, it's still driven purely by the CLI arg below.
 MODE_FILE="/userdata/valetudo/mode"
 
-HOST_A="eu-cdndevaiot.3irobotix.net"
-HOST_B="eu-gamqttaiot.3irobotix.net"
+HOST_A_FALLBACK="eu-cdndevaiot.3irobotix.net"
+HOST_B_FALLBACK="eu-gamqttaiot.3irobotix.net"
 VALETUDO_IP="127.0.13.38"
+WIFI_CONF="/userdata/config/wifi.conf"
+
+# HOST_A/HOST_B are read live from the robot's own wifi.conf rather than
+# hardcoded, because that's what they actually are: aiot_client's own
+# loadWifiConfig() re-reads http_host/mqtt_host from this exact file on
+# every startup and connects to whatever's there (confirmed via
+# disassembly of aiot_client.bin) -- these two constants used to just be
+# the EU values copied from one real robot's wifi.conf, which only ever
+# worked for a robot whose wifi.conf happened to also say EU. Redirecting
+# whatever's actually in wifi.conf instead works for any region a robot
+# was paired in, with no per-region guessing, and also covers a robot
+# provisioned by provision-wifi.py with placeholder cloud fields (it just
+# redirects those placeholders instead). Fallback to the EU values only if
+# wifi.conf is missing/unreadable -- shouldn't normally happen, since this
+# script already needs a working ssh connection, which itself needs the
+# robot to already be on WiFi.
+wifi_conf_host() {
+    if [ -r "$WIFI_CONF" ]; then
+        sed -n "s/^$1=//p" "$WIFI_CONF" | head -1
+    fi
+}
+
+resolve_hosts() {
+    HOST_A="$(wifi_conf_host http_host || true)"
+    HOST_B="$(wifi_conf_host mqtt_host || true)"
+    if [ -z "$HOST_A" ]; then
+        HOST_A="$HOST_A_FALLBACK"
+        echo "WARNING: could not read http_host from $WIFI_CONF -- using EU fallback ($HOST_A)" >&2
+    fi
+    if [ -z "$HOST_B" ]; then
+        HOST_B="$HOST_B_FALLBACK"
+        echo "WARNING: could not read mqtt_host from $WIFI_CONF -- using EU fallback ($HOST_B)" >&2
+    fi
+}
 
 restart_aiot_client() {
     # Opens aiot-gate.sh's boot gate before the kill, so wifi-deamon.sh is free to
@@ -260,11 +294,15 @@ mode_cloud() {
 mode_valetudo() {
     require_oem_writable
     ensure_backups
+    resolve_hosts
 
-    if [ ! -f "$HOSTS_VALETUDO" ]; then
-        cp "$HOSTS_BACKUP" "$HOSTS_VALETUDO"
-        printf '%s\t%s\n%s\t%s\n' "$VALETUDO_IP" "$HOST_A" "$VALETUDO_IP" "$HOST_B" >> "$HOSTS_VALETUDO"
-    fi
+    # Rebuilt fresh from the backup every time, never cached -- a robot
+    # whose WiFi gets reset and reprovisioned with different http_host/
+    # mqtt_host (different region, or a fresh placeholder pair from
+    # provision-wifi.py) must not keep redirecting a stale hostname pair
+    # left over from an earlier run.
+    cp "$HOSTS_BACKUP" "$HOSTS_VALETUDO"
+    printf '%s\t%s\n%s\t%s\n' "$VALETUDO_IP" "$HOST_A" "$VALETUDO_IP" "$HOST_B" >> "$HOSTS_VALETUDO"
 
     switch_hosts "$HOSTS_VALETUDO"
     cp "$CERT_VALETUDO" "$CERT_TARGET_OEM"
