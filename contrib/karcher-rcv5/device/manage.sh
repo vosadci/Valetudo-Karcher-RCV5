@@ -1,7 +1,9 @@
 #!/bin/sh
 # manage.sh — on-device entry point for someone with only SSH access to the
-# robot (no laptop, no checkout of this repo, no README.md). Deploy to
-# /userdata/valetudo/manage.sh.
+# robot (no laptop, no checkout of this repo). Deploy to
+# /userdata/valetudo/manage.sh. A short static companion, README.md, is
+# deployed alongside it (same PUSH_ITEMS entry in lib.sh) for anyone who
+# wants a plain-text fallback instead of running this script.
 #
 # Every multi-step sequence here (activate/uninstall) is a direct mirror of
 # what activate.sh/uninstall.sh do from the Mac — those scripts contain no
@@ -34,6 +36,13 @@
 # (external, over adb, vs. on-device), neither requiring the other.
 
 set -eu
+
+# Ctrl-C during the wifi subcommand's password prompt or its polling loop
+# used to just print dash's own bare exit noise. This makes the stop
+# explicit. Any per-function EXIT trap already set (do_wifi's wifi_cleanup,
+# restoring stty echo / removing a staged network) still runs right after --
+# INT and EXIT are independent traps, `exit` always triggers the latter.
+trap 'echo "Interrupted (Ctrl-C) -- stopping." >&2; exit 130' INT
 
 REMOTE_DIR="/userdata/valetudo"
 CCS="$REMOTE_DIR/karcher-cloud-switch.sh"

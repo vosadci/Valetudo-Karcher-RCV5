@@ -54,6 +54,19 @@ err() {
     printf '%s%s%s\n' "$BOLD$RED" "$*" "$RESET" >&2
 }
 
+# Ctrl-C during a password prompt, a polling loop, or a long scp/curl
+# transfer used to just print bash's own bare "Killed by signal 2" (or
+# nothing at all). This makes the stop explicit instead. Whatever EXIT trap
+# the calling script already set (staged-network cleanup, temp-file removal,
+# etc.) still runs right after — `exit` always triggers it, this doesn't
+# replace it, INT and EXIT are independent traps.
+on_sigint() {
+    warn ""
+    warn "Interrupted (Ctrl-C) -- stopping."
+    exit 130
+}
+trap on_sigint INT
+
 # Firmware this tooling (aiot-gate.sh's wifi-deamon.sh patch above all) is
 # anchored to. install.sh refuses to proceed without it; upgrade-firmware.sh
 # stages an image to get a robot onto it. Bump together if this tooling is
@@ -126,6 +139,7 @@ PUSH_ITEMS=(
     "device/boot-hook.sh|exec"
     "device/aiot-gate.sh|exec"
     "device/manage.sh|exec"
+    "device/README.md|data"
     "server_v1.crt|data"
     "server.key|data"
 )

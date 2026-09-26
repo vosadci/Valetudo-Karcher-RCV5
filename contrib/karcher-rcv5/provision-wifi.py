@@ -90,6 +90,21 @@ except ImportError:
         "(already a prerequisite of this directory, for gen_cert.py)"
     )
 
+# Same bold/color convention as lib.sh's ok()/warn() (Magenta, not yellow --
+# too easily confused with green in some terminal color schemes). Falls back
+# to plain text when stdout isn't a terminal.
+if sys.stdout.isatty():
+    BOLD = "\033[1m"
+    MAGENTA = "\033[1;35m"
+    RESET = "\033[0m"
+else:
+    BOLD = MAGENTA = RESET = ""
+
+
+def warn(*args) -> None:
+    print(f"{BOLD}{MAGENTA}{' '.join(str(a) for a in args)}{RESET}")
+
+
 HOST = "192.168.5.1"
 PORT = 6008
 AES_KEY = b"0310abafaa3a2268"  # MD5(tenantId)[8:24], see the protocol notes above
@@ -271,8 +286,36 @@ def connect_with_retry() -> tuple[socket.socket, int]:
     )
 
 
+def on_robot_network() -> bool:
+    """Best-effort check that this machine currently has a route to the robot's
+    onboarding subnet (192.168.5.0/24) -- i.e. it's actually joined to the
+    robot's own WiFi hotspot right now, not some other network. Uses a UDP
+    "connect" purely to ask the OS for local routing info; sends no packets."""
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+            s.connect((HOST, 1))
+            local_ip = s.getsockname()[0]
+        return local_ip.startswith("192.168.5.")
+    except OSError:
+        return False
+
+
 def main():
     print(f"== provision-wifi.py -- direct SoftAP WiFi provisioning (no app, no ADB) ==")
+    print()
+    warn("!! IMPORTANT: this computer must be connected to the ROBOT'S OWN onboarding")
+    warn("!! WiFi network (the open, no-password hotspot it broadcasts) RIGHT NOW --")
+    warn("!! not your home WiFi, not any other network. Join it from this computer's")
+    warn("!! own WiFi settings first if you haven't already -- it's very easy to")
+    warn("!! forget this and stay on your regular network by accident.")
+    print()
+    if on_robot_network():
+        print(f"OK: this machine has a route to {HOST} -- looks like the robot's network.")
+    else:
+        warn(f"WARNING: no route to {HOST} (192.168.5.0/24) from this machine right now --")
+        warn("you're very likely NOT connected to the robot's onboarding WiFi. Switch to it,")
+        warn("then continue -- everything below will just time out otherwise.")
+        input("Press enter once you're on the robot's WiFi network (or Ctrl-C to stop)... ")
     print()
 
     bean = gather_wifi_data()
@@ -352,4 +395,9 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except KeyboardInterrupt:
+        print()
+        warn("Interrupted (Ctrl-C) -- stopping.")
+        sys.exit(130)

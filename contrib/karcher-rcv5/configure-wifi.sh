@@ -139,10 +139,10 @@ run() {
 }
 
 NET_ID="\$(run add_network)"
-run set_network "\$NET_ID" ssid $SSID_ARG
-run set_network "\$NET_ID" psk $PSK_ARG
-run enable_network "\$NET_ID"
-run select_network "\$NET_ID"
+run set_network "\$NET_ID" ssid $SSID_ARG >/dev/null
+run set_network "\$NET_ID" psk $PSK_ARG >/dev/null
+run enable_network "\$NET_ID" >/dev/null
+run select_network "\$NET_ID" >/dev/null
 
 trap - EXIT
 echo "STAGED_OK net_id=\$NET_ID"

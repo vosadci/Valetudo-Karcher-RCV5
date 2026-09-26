@@ -334,46 +334,54 @@ would actually free enough.
   app, which offers a firmware update as part of that flow. See "Recovering
   from a WiFi/config reset" below — this is the only path that's been
   confirmed end-to-end.
-- **(b) Unverified, experimental** — see the next section.
+- **(b) On hold, not tested** — see the next section.
 
-### Unverified local OTA trigger
+### Local OTA trigger (on hold, not tested)
 
-Research only, from `strings`/symbol analysis of `/oem/bin/upgrade` (the
-robot's own OTA daemon — a persistent process, not a one-shot CLI, started
-unconditionally at boot by `/etc/init.d/S95robotUpgrade`) and `/oem/bin/
-RobotApp`, done against the extracted `I3.12.90` rootfs. **Never
-instruction-traced or tested on real hardware** — treat this as a lead to
-investigate, not a procedure to run.
+**Status: reverse-engineered by full disassembly, deliberately not attempted live.**
+An earlier version of this section described a local *file-drop* handoff
+(`/userdata/Download/update.img` + `/userdata/NewOta` + `/tmp/ota_start`),
+inferred from `strings`/symbol analysis alone — that theory is **disproven**:
+direct disassembly of `/oem/bin/upgrade` found zero callers of the functions
+that theory depended on. The real mechanism, found by actually disassembling
+`upgrade`'s control flow, is different and much better understood:
 
-Both binaries share a local file-based handoff, independent of MQTT/cloud
-once an image is already on the robot:
+- `upgrade` binds an **unauthenticated `AF_UNIX SOCK_DGRAM` socket**
+  (`chmod 0777`) at `/tmp/UDP_UPGRADE_SEND_PATH` — despite the "UDP" naming,
+  it's a Unix-domain socket, not real UDP/IP.
+- A two-datagram message (a 20-byte header, then a payload with a URL string,
+  an MD5 field, and a destination path) sent to that socket sets the daemon's
+  internal state machine into its download state.
+- The download step uses `libcurl` with `CURLOPT_PROTOCOLS` set to allow
+  *every* protocol, including `file://` — so a URL pointing at an
+  already-downloaded local file (e.g. what `upgrade-firmware.sh` stages)
+  would be fetched exactly like a real CDN download.
+- After a successful download and MD5 check, the daemon decrypts a custom
+  container format and calls into an **A/B partition-write path**
+  (`RK_ota_start()`) that writes the new firmware live, in-process, then
+  triggers an immediate reboot (`echo b > /proc/sysrq-trigger`) — there's no
+  separate boot-time recovery pass; by the time it reboots, the write is
+  already done.
+- Confirmed on real hardware (2026-09-26, read-only): the daemon is running,
+  the socket exists with exactly the predicted permissions, and its log file
+  (`/userdata/log/upgrade.temp`) matches the disassembly's log strings
+  exactly. It also **actively deletes** `/userdata/update.img` and
+  `/tmp/update.tmp` on every startup — confirming the old file-drop theory
+  wouldn't have worked even before it was disproven by disassembly.
 
-- `/userdata/Download` — plausible staging directory the daemon watches
-  (literal string in both binaries); the image is expected there as
-  `update.img` (`upgrade` has the format string `"Md5Check update.img
-  fwSize:%ld"`).
-- `/userdata/NewOta` — a version-marker file. `RobotApp` exports a real,
-  demangled C++ symbol `everest::base::CFilePath::touchNewOtaFile(int)` that
-  writes it, and `::getNewOtaVersion()` that reads it back — exact byte
-  format unconfirmed (plausibly just the numeric version code, e.g. `90`,
-  inferred from the `(int)` argument alone).
-- `/tmp/ota_start` — the actual go-signal file. Both binaries share this
-  literal string; `RobotApp` also has a matching `"ota_start = "` format
-  string.
-- `upgrade` also does a real space-check on its download directory before
-  proceeding (`UdpServer::sendNeedSpace`/`sendNoNeedSpace`,
-  `CFileSystem::detectOccupacySpace`, `CFilePath::m_download_dir`) — the
-  space math above isn't hypothetical, it's what the vendor's own code
-  checks too.
-
-If this reading holds, the trigger would be: move the staged image to
-`/userdata/Download/update.img`, write the version code to `/userdata/
-NewOta`, then touch `/tmp/ota_start` — entirely local, no MQTT/cloud
-involved. Re-flashing the genuine, officially-signed image isn't blocked by
-verified boot either way (that only guards *modified* images). What's
-genuinely unknown: the exact file formats above, and whether this reading
-of the strings/symbols is even complete. Back the robot up first (see
-"Disaster recovery" above) before attempting this.
+**Why this is on hold rather than being tried**: sending this trigger for
+real would be the first write path this project has attempted with no known
+way back. Every other recovery lever this project relies on assumes a reset
+can get the robot to a clean/known state — but five independent reset
+mechanisms have now been tested (the physical button, the app's "Factory
+reset," the app's "Privacy / Withdraw Consent" flow, and two others from an
+earlier session) and **none of them revert firmware**, so there's currently
+no confirmed way to deliberately move this robot to an older firmware
+version first. Until a way to do that exists (or someone's willing to accept
+the risk without it), the local trigger stays a documented, disassembly-level
+lead — not something to run. If you want the full byte-level protocol
+(exact struct offsets, the specific `msg_type` values tried, the log-string
+cross-references), ask — it's tracked in detail outside this README.
 
 ## Recovering from a WiFi/config reset
 

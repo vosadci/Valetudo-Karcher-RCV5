@@ -1,7 +1,7 @@
 #!/bin/bash
 #
 # Idempotent staging for a freshly-rooted RCV5: pushes the Valetudo binary,
-# wrapper scripts, dev certs, and the boot trampoline. Never touches
+# wrapper scripts, dev certs, an on-device README, and the boot trampoline. Never touches
 # config.json/device-identity.json/mode if they already exist (those hold
 # state this script has no business overwriting). Ends with the robot still
 # in stock/cloud behavior — run activate.sh separately to switch it live.
