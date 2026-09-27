@@ -11,15 +11,15 @@
 #
 # STATUS: the cert-swap half (server.crt) is the mechanism a prior session proved live
 # end-to-end (fake HTTP login + fake MQTT broker, zero real-cloud contact). The
-# /etc/hosts bind-mount redirect below is NEW this session, reasoned out from static
-# analysis of the extracted I3.12.90 rootfs (nsswitch.conf: "hosts: files dns" — /etc/hosts
-# is consulted before DNS; busybox.config has no CONFIG_IPTABLES and no separate iptables
-# binary exists, so there is no DNAT capability; CONFIG_FEATURE_MOUNT_FLAGS=y confirms
-# busybox mount supports "-o bind"). It has NOT been run against the real device yet.
+# /etc/hosts bind-mount redirect (HOST_A/HOST_B) is LIVE-CONFIRMED (2026-09-18), reasoned out
+# from static analysis of the extracted I3.12.90 rootfs (nsswitch.conf: "hosts: files dns" —
+# /etc/hosts is consulted before DNS; busybox.config has no CONFIG_IPTABLES and no separate
+# iptables binary exists, so there is no DNAT capability; CONFIG_FEATURE_MOUNT_FLAGS=y confirms
+# busybox mount supports "-o bind"), then verified against the real device.
 # An earlier draft of this script used `route add -host`, which is wrong: the kernel
 # routing table has no bearing on hostname resolution — that happens in userspace via
 # /etc/hosts, which lives on the read-only squashfs root and can't be edited directly,
-# hence the bind-mount. Smoke-test this on the device (mode + revert) before relying on it.
+# hence the bind-mount.
 #
 # The gdroot-g2.crt half (RobotApp's own, separately-linked curl/OpenSSL CA trust
 # bundle — a real 128-cert standard bundle despite the "gdroot" name) was added after
@@ -27,6 +27,15 @@
 # S3 PUT itself (not aiot_client), using its own curl instance, which validates against
 # this file independently of the server.crt swap above. Confirmed live 2026-09-18 (see
 # project_rcv5_valetudo_step7_live_confirmed memory).
+#
+# In valetudo mode, /etc/hosts also blackholes (to 127.0.0.1) several other real,
+# live-resolving 3irobotix/3irobotics hosts the robot itself talks to OUTSIDE the
+# aiot_client bridge (RobotApp's own direct OTA/log channels — see BLOCK_HOSTS below)
+# — added 2026-09-26 after confirming they're not covered by the HOST_A/HOST_B pair.
+# LIVE-CONFIRMED same day: /etc/hosts on the real device came back with exactly the
+# expected 8 lines (2 dummycloud + 6 blackholed), verify_hosts/verify_processes_restarted
+# passed. Confirms the redirect is in place, not (yet, via packet capture) that any of
+# the six were actually about to be dialed.
 #
 # Every step here is reversible: `cloud` mode restores the original hosts file, cert,
 # and CA bundle, and the undo for `valetudo` mode is simply running `cloud` again.
@@ -49,6 +58,32 @@ HOST_A_FALLBACK="eu-cdndevaiot.3irobotix.net"
 HOST_B_FALLBACK="eu-gamqttaiot.3irobotix.net"
 VALETUDO_IP="127.0.13.38"
 WIFI_CONF="/userdata/config/wifi.conf"
+
+# Hosts the robot itself talks to OUTSIDE the aiot_client bridge that HOST_A/HOST_B
+# above cover -- confirmed by grepping every oem/bin binary's strings plus
+# oem/sysconf/sysConfig.ini on the extracted I3.12.90 rootfs, and cross-checked
+# against karcher-rcv5-ha's doc/INVESTIGATION.md network table (2026-09-26):
+#   - ota.3irobotix.net       -- sysConfig.ini server_cmd_address/server_map_address/
+#                                 server_ota_address (ports 4010/4030/8001/2300); RobotApp's
+#                                 own CTcpClient, separate from the MQTT bridge. INVESTIGATION.md
+#                                 documents its check endpoint as hit "on every cloud connection".
+#   - eu-cdnallaiot.3irobotix.net -- documented production firmware CDN (INVESTIGATION.md).
+#   - eu-cdnupdatepkgaiot.3irobotix.net -- the real firmware CDN this repo's own
+#                                 upgrade-firmware.sh downloads from (lib.sh FIRMWARE_URL). Not
+#                                 found hardcoded on-device, so nothing currently feeds the robot
+#                                 this URL on its own -- blocked anyway, defense-in-depth.
+#   - log.3irobotics.net      -- sysConfig.ini server_log_address (port 21).
+#   - das.3irobotics.net      -- RobotApp/log-server string-table default, clustered with
+#                                 generic SDK boilerplate; not confirmed as actually dialed, but
+#                                 a real, live-resolving host, so blocked rather than assumed dead.
+#   - test-devlog.3irobotix.net -- log-server's own devlog target string.
+# All confirmed as real, currently-resolving hostnames (not dead/unregistered domains) via `dig`.
+# Redirected to loopback, not VALETUDO_IP: nothing needs to answer for these, unlike
+# HOST_A/HOST_B which the dummycloud actively serves -- a refused/timed-out connection here IS
+# the desired outcome. Applied unconditionally in valetudo mode; mode_cloud's revert-from-backup
+# already removes these along with the HOST_A/HOST_B pair, since HOSTS_BACKUP never contained them.
+BLOCK_HOSTS="ota.3irobotix.net eu-cdnallaiot.3irobotix.net eu-cdnupdatepkgaiot.3irobotix.net log.3irobotics.net das.3irobotics.net test-devlog.3irobotix.net"
+BLOCK_IP="127.0.0.1"
 
 # HOST_A/HOST_B are read live from the robot's own wifi.conf rather than
 # hardcoded, because that's what they actually are: aiot_client's own
@@ -303,6 +338,9 @@ mode_valetudo() {
     # left over from an earlier run.
     cp "$HOSTS_BACKUP" "$HOSTS_VALETUDO"
     printf '%s\t%s\n%s\t%s\n' "$VALETUDO_IP" "$HOST_A" "$VALETUDO_IP" "$HOST_B" >> "$HOSTS_VALETUDO"
+    for h in $BLOCK_HOSTS; do
+        printf '%s\t%s\n' "$BLOCK_IP" "$h" >> "$HOSTS_VALETUDO"
+    done
 
     switch_hosts "$HOSTS_VALETUDO"
     cp "$CERT_VALETUDO" "$CERT_TARGET_OEM"
@@ -320,7 +358,7 @@ mode_valetudo() {
     restart_robotapp_stack
     verify_processes_restarted
 
-    echo "switched to: local Valetudo dummycloud ($VALETUDO_IP, verified) — undo with: $0 cloud"
+    echo "switched to: local Valetudo dummycloud ($VALETUDO_IP, verified), $(echo "$BLOCK_HOSTS" | wc -w) other cloud host(s) blackholed — undo with: $0 cloud"
     persist_mode "valetudo"
 }
 
