@@ -60,7 +60,16 @@ class KaercherRCV5ValetudoRobot extends ValetudoRobot {
             // APK sends one privacy sub-field at a time (e.g. CarpetSettingVM.
             // setCarpetTurbo only puts "carpet_turbo" in its payload), so a naive
             // replace would blank the other three fields on every partial echo.
-            privacy: undefined
+            privacy: undefined,
+            // Read by KaercherDoNotDisturbCapability (PoC — see
+            // temporal-honking-treasure.md "Add Do Not Disturb" section, not yet finished).
+            // quiet_begin_time/quiet_end_time/time_zone are not in the app's own prop.get
+            // request list — unconfirmed whether a poll actually returns them, see
+            // KaercherConst.ROBOT_PROPERTIES.
+            quiet_is_open: undefined,
+            quiet_begin_time: undefined,
+            quiet_end_time: undefined,
+            time_zone: undefined
         };
 
         const knownIdentity = this.readKnownIdentity();
@@ -101,6 +110,15 @@ class KaercherRCV5ValetudoRobot extends ValetudoRobot {
                         // karcher-home's own _process_mqtt_message()/_update_device_properties(),
                         // which dispatches purely by topic rather than by any method field.
                         this.parseAndUpdateState(envelope.data);
+                    } else if (topic.endsWith("/service_invoke_reply/set_quiet_time")) {
+                        // PoC diagnostic (KaercherDoNotDisturbCapability) — previously silently
+                        // dropped, since nothing registered a reply_listener for this specific
+                        // service_invoke_reply. Just logging the raw envelope here rather than
+                        // building the full reply-listener plumbing get_preference uses, since
+                        // this is purely to confirm the robot actually accepted set_quiet_time.
+                        Logger.info(
+                            `KaercherRCV5ValetudoRobot: set_quiet_time reply: ${JSON.stringify(envelope)}`
+                        );
                     }
                 },
                 onSpecificUseUpload: (dir, body) => {
@@ -141,7 +159,9 @@ class KaercherRCV5ValetudoRobot extends ValetudoRobot {
             capabilities.KaercherMapSegmentRenameCapability,
             capabilities.KaercherCarpetModeControlCapability,
             capabilities.KaercherCarpetSensorModeControlCapability,
-            capabilities.KaercherObstacleAvoidanceControlCapability
+            capabilities.KaercherObstacleAvoidanceControlCapability,
+            // PoC — see KaercherDoNotDisturbCapability.js header comment.
+            capabilities.KaercherDoNotDisturbCapability
         ];
 
         if (this.knownHasAutoEmptyDock === true) {
@@ -321,6 +341,45 @@ class KaercherRCV5ValetudoRobot extends ValetudoRobot {
             if (data[key] !== undefined) {
                 this.ephemeralState[key] = data[key];
             }
+        }
+
+        // DND PoC (KaercherDoNotDisturbCapability) — flat fields, as distinct from the
+        // nested quiet_status object below. See KaercherConst.ROBOT_PROPERTIES for the
+        // caveat that these two representations may not both actually arrive.
+        for (const key of ["quiet_is_open", "quiet_begin_time", "quiet_end_time", "time_zone"]) {
+            if (data[key] !== undefined) {
+                this.ephemeralState[key] = data[key];
+            }
+        }
+
+        // Nested alternative representation of the same setting (doc/PROTOCOL.md findings,
+        // DND PoC) — mapped onto the same flat ephemeralState fields KaercherDoNotDisturbCapability
+        // reads, since it's unconfirmed which representation (flat vs. nested) the robot
+        // actually sends on a given push/poll.
+        if (data.quiet_status !== undefined) {
+            if (data.quiet_status.begin_time !== undefined) {
+                this.ephemeralState.quiet_begin_time = data.quiet_status.begin_time;
+            }
+            if (data.quiet_status.end_time !== undefined) {
+                this.ephemeralState.quiet_end_time = data.quiet_status.end_time;
+            }
+        }
+
+        // PoC diagnostic — see KaercherDoNotDisturbCapability.js. Logs only when at least one
+        // of these fields is actually present in this particular push/reply, so it also answers
+        // "does a prop.get reply ever include these at all" (KaercherConst.ROBOT_PROPERTIES
+        // caveat) just by whether this line appears.
+        if (
+            data.quiet_is_open !== undefined || data.quiet_begin_time !== undefined ||
+            data.quiet_end_time !== undefined || data.time_zone !== undefined ||
+            data.quiet_status !== undefined
+        ) {
+            Logger.info(
+                `KaercherRCV5ValetudoRobot: DND-related fields in incoming data: ` +
+                `quiet_is_open=${data.quiet_is_open} quiet_begin_time=${data.quiet_begin_time} ` +
+                `quiet_end_time=${data.quiet_end_time} time_zone=${data.time_zone} ` +
+                `quiet_status=${JSON.stringify(data.quiet_status)}`
+            );
         }
 
         // Merged, not replaced — see the ephemeralState.privacy comment in the

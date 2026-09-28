@@ -275,7 +275,12 @@ const ROBOT_PROPERTIES = Object.freeze([
     // Suction Station RCV 5 fields (project_auto_empty_dock memory, device-confirmed
     // 2026-08-04) — also not part of the app's own list, same untested-extension
     // reasoning as the consumable fields above.
-    "dust_action", "charge_station_type"
+    "dust_action", "charge_station_type",
+    // DND PoC (temporal-honking-treasure.md, "Add Do Not Disturb" section) — also not part
+    // of the app's own request list. Untested whether the robot actually answers a prop.get
+    // with these; quiet_is_open/quiet_status above already are requested and may carry the
+    // same information via quiet_status.begin_time/end_time instead.
+    "quiet_begin_time", "quiet_end_time", "time_zone"
 ]);
 
 module.exports = {

@@ -6,6 +6,7 @@ module.exports = {
     KaercherCombinedVirtualRestrictionsCapability: require("./KaercherCombinedVirtualRestrictionsCapability"),
     KaercherConsumableMonitoringCapability: require("./KaercherConsumableMonitoringCapability"),
     KaercherCurrentStatisticsCapability: require("./KaercherCurrentStatisticsCapability"),
+    KaercherDoNotDisturbCapability: require("./KaercherDoNotDisturbCapability"),
     KaercherFanSpeedControlCapability: require("./KaercherFanSpeedControlCapability"),
     KaercherMapSegmentEditCapability: require("./KaercherMapSegmentEditCapability"),
     KaercherMapSegmentRenameCapability: require("./KaercherMapSegmentRenameCapability"),
