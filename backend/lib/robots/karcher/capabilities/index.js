@@ -8,6 +8,7 @@ module.exports = {
     KaercherCurrentStatisticsCapability: require("./KaercherCurrentStatisticsCapability"),
     KaercherDoNotDisturbCapability: require("./KaercherDoNotDisturbCapability"),
     KaercherFanSpeedControlCapability: require("./KaercherFanSpeedControlCapability"),
+    KaercherLocateCapability: require("./KaercherLocateCapability"),
     KaercherMapSegmentEditCapability: require("./KaercherMapSegmentEditCapability"),
     KaercherMapSegmentRenameCapability: require("./KaercherMapSegmentRenameCapability"),
     KaercherMapSegmentationCapability: require("./KaercherMapSegmentationCapability"),
