@@ -8,6 +8,7 @@ const KaercherMapParser = require("./KaercherMapParser");
 const KaercherQuirkFactory = require("./KaercherQuirkFactory");
 const KaercherStateDerivation = require("./KaercherStateDerivation");
 const KaercherStaticTLSContext = require("./KaercherStaticTLSContext");
+const LinuxWifiScanCapability = require("../common/linuxCapabilities/LinuxWifiScanCapability");
 const Logger = require("../../Logger");
 const QuirksCapability = require("../../core/capabilities/QuirksCapability");
 const ValetudoRobot = require("../../core/ValetudoRobot");
@@ -172,6 +173,20 @@ class KaercherRCV5ValetudoRobot extends ValetudoRobot {
         capabilitiesToRegister.forEach(capability => {
             this.registerCapability(new capability({robot: this}));
         });
+
+        // Wi-Fi status/scan take a networkInterface option the generic forEach above
+        // doesn't supply, and only make sense when actually running on the robot itself
+        // (matches DreameValetudoRobot.js's own embedded gate for LinuxWifiScanCapability).
+        if (this.config.get("embedded") === true) {
+            this.registerCapability(new capabilities.KaercherWifiConfigurationCapability({
+                robot: this,
+                networkInterface: "wlan0"
+            }));
+            this.registerCapability(new LinuxWifiScanCapability({
+                robot: this,
+                networkInterface: "wlan0"
+            }));
+        }
 
         const quirkFactory = new KaercherQuirkFactory({robot: this});
         this.registerCapability(new QuirksCapability({
@@ -377,7 +392,7 @@ class KaercherRCV5ValetudoRobot extends ValetudoRobot {
             data.quiet_status !== undefined
         ) {
             Logger.info(
-                `KaercherRCV5ValetudoRobot: DND-related fields in incoming data: ` +
+                "KaercherRCV5ValetudoRobot: DND-related fields in incoming data: " +
                 `quiet_is_open=${data.quiet_is_open} quiet_begin_time=${data.quiet_begin_time} ` +
                 `quiet_end_time=${data.quiet_end_time} time_zone=${data.time_zone} ` +
                 `quiet_status=${JSON.stringify(data.quiet_status)}`
