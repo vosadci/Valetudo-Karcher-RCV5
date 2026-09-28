@@ -4,7 +4,7 @@ This is a copy of the essentials, kept on the robot itself for anyone with
 only SSH access — no laptop, no checkout of this repo. It is deliberately
 short. For full detail (protocol writeups, build steps, troubleshooting),
 see `README.md` in the `contrib/karcher-rcv5/` directory of the repo this
-was deployed from: https://github.com/vosadci/Valetudo
+was deployed from: https://github.com/vosadci/Valetudo-Karcher-RCV5
 
 ## Start here
 

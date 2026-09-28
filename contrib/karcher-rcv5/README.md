@@ -30,8 +30,8 @@ Clone the fork — **not** upstream `Hypfer/Valetudo`, which has no Kärcher
 module:
 
 ```sh
-git clone git@github.com:vosadci/Valetudo.git
-cd Valetudo
+git clone git@github.com:vosadci/Valetudo-Karcher-RCV5.git
+cd Valetudo-Karcher-RCV5
 ```
 
 Every command below runs on your Mac/PC — not on the robot. Each section
