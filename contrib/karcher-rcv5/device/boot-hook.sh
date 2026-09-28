@@ -11,7 +11,7 @@
 set -u
 
 MODE_FILE=/userdata/valetudo/mode
-LOG=/userdata/log/valetudo-boot-hook.log
+LOG=/tmp/valetudo-boot-hook.log
 # KaercherAiotDummycloud.BIND_IP and its HTTP_PORT/MQTT_PORT. Deliberately NOT
 # anchored on trailing whitespace: this busybox has CONFIG_FEATURE_NETSTAT_WIDE
 # unset, so the address column's exact padding/truncation isn't something we've
@@ -26,10 +26,12 @@ MODE="cloud"
 
 [ "$MODE" = "valetudo" ] || exit 0
 
-# Truncated per boot, so this is always just this boot's record and can't grow
-# unbounded the way the vendor's own /userdata/log files do. Console output from
-# an S99-backgrounded script is otherwise unrecoverable after the fact.
-mkdir -p /userdata/log 2>/dev/null || true
+# /tmp, not /userdata: no flash wear, and /tmp is already guaranteed to exist
+# (tmpfs, mounted before this ever runs). Truncated per boot regardless, so it's
+# always just this boot's record. Trade-off: unlike the vendor's own persistent
+# /userdata/log files, this does NOT survive the reboot it's diagnosing — read it
+# live (or before power-cycling again) if a boot goes wrong. Console output from
+# an S99-backgrounded script is otherwise unrecoverable after the fact either way.
 exec > "$LOG" 2>&1
 
 # "Valetudo is ready" means exactly "both dummycloud listeners are bound", since

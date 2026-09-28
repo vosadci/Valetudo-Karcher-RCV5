@@ -8,6 +8,14 @@
 # /userdata/{etc-hosts,server.crt,gdroot-g2.crt}.orig regardless of --purge —
 # those are the irreplaceable originals, structurally outside /userdata/valetudo/.
 #
+# Within --purge, the /oem overlay is disarmed BEFORE /userdata/valetudo is
+# removed — aiot-gate.sh overlay off only clears a flag (the actual revert to
+# a stock read-only /oem happens on the next reboot), but it needs
+# aiot-gate.sh to still be on disk to do even that. Purging first would leave
+# /oem bind-mounted from the /userdata/debug_dir/oem copy indefinitely, with
+# no script left on the robot able to undo it short of removing the flag file
+# by hand over ssh.
+#
 # Usage: ./uninstall.sh <robot-ip-or-host> [--purge]
 #
 
@@ -40,6 +48,14 @@ echo "== Removing boot-autostart hook =="
 ssh "${SSH_OPTS[@]}" "$REMOTE" 'rm -f /userdata/cfg/rockchip_test/auto_reboot.sh'
 
 if [ "$PURGE" = "--purge" ]; then
+    echo "== Disarming the /oem overlay =="
+    ssh "${SSH_OPTS[@]}" "$REMOTE" '[ -x /userdata/valetudo/aiot-gate.sh ] || exit 0
+        /userdata/valetudo/aiot-gate.sh overlay off' \
+        || warn "WARNING: could not disarm the overlay — check '/userdata/valetudo/aiot-gate.sh status' by hand"
+
+    echo "== Removing any staged firmware upgrade image =="
+    ssh "${SSH_OPTS[@]}" "$REMOTE" "rm -rf $REMOTE_STAGE_DIR"
+
     echo "== Purging /userdata/valetudo and the derived hosts variant =="
     ssh "${SSH_OPTS[@]}" "$REMOTE" 'rm -rf /userdata/valetudo; rm -f /userdata/etc-hosts.valetudo'
     echo "purged (the three .orig backups under /userdata were NOT touched)"

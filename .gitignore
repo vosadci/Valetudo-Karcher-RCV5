@@ -26,6 +26,6 @@ build/
 /contrib/karcher-rcv5/server.crt
 /contrib/karcher-rcv5/server_v1.crt
 /contrib/karcher-rcv5/server_v1.der
-/contrib/karcher-rcv5/map_captures/
+/contrib/karcher-rcv5/dev/map_captures/
 /contrib/karcher-rcv5/__pycache__/
-/contrib/device-originals-backup/
+/contrib/karcher-rcv5/device-originals-backup/

@@ -20,6 +20,7 @@ import argparse
 import base64
 import datetime
 import os
+import sys
 
 from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
@@ -171,4 +172,9 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except KeyboardInterrupt:
+        print()
+        print("Interrupted (Ctrl-C) -- stopping.")
+        sys.exit(130)

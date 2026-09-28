@@ -6,7 +6,9 @@ module.exports = {
     KaercherCombinedVirtualRestrictionsCapability: require("./KaercherCombinedVirtualRestrictionsCapability"),
     KaercherConsumableMonitoringCapability: require("./KaercherConsumableMonitoringCapability"),
     KaercherCurrentStatisticsCapability: require("./KaercherCurrentStatisticsCapability"),
+    KaercherDoNotDisturbCapability: require("./KaercherDoNotDisturbCapability"),
     KaercherFanSpeedControlCapability: require("./KaercherFanSpeedControlCapability"),
+    KaercherLocateCapability: require("./KaercherLocateCapability"),
     KaercherMapSegmentEditCapability: require("./KaercherMapSegmentEditCapability"),
     KaercherMapSegmentRenameCapability: require("./KaercherMapSegmentRenameCapability"),
     KaercherMapSegmentationCapability: require("./KaercherMapSegmentationCapability"),
@@ -15,5 +17,6 @@ module.exports = {
     KaercherSpeakerTestCapability: require("./KaercherSpeakerTestCapability"),
     KaercherSpeakerVolumeControlCapability: require("./KaercherSpeakerVolumeControlCapability"),
     KaercherWaterUsageControlCapability: require("./KaercherWaterUsageControlCapability"),
+    KaercherWifiConfigurationCapability: require("./KaercherWifiConfigurationCapability"),
     KaercherZoneCleaningCapability: require("./KaercherZoneCleaningCapability")
 };

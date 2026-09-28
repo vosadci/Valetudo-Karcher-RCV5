@@ -38,8 +38,14 @@
 # inside that revert updates the mode file too, so later boots stay consistent
 # rather than repeating the same failed attempt forever. Detect it with:
 #   grep valetudo-gate /userdata/log/miio_deamon.log
+# That one line stays in the vendor's own persistent /userdata/log (unlike our
+# own logging, which lives in /tmp to avoid flash wear — see boot-hook.sh):
+# it exists specifically to survive the very reboot this deadline causes, so
+# writing it to tmpfs would defeat the point. It's a single line on a rare
+# fallback path, not a source of meaningful wear.
 # A hit there means boot-hook.sh didn't finish in time on that boot; check
-# /userdata/log/valetudo-boot-hook.log for why.
+# /tmp/valetudo-boot-hook.log for why (only if read before the next reboot —
+# it's gone after that, same as everything else under /tmp).
 #
 # /oem WRITABILITY — LIVE-CONFIRMED 2026-09-19, do not re-litigate this
 #
@@ -118,7 +124,7 @@ valetudo_gate_open()
 	# switch back on its own terms instead of repeating this every time.
 	echo "$(date '+%Y-%m-%d %H:%M:%S') :valetudo-gate deadline, reverting to cloud" >> /userdata/log/miio_deamon.log
 	cp /userdata/valetudo/auto_reboot.sh /data/cfg/rockchip_test/auto_reboot.sh 2>/dev/null
-	/userdata/valetudo/karcher-cloud-switch.sh cloud >>/userdata/log/valetudo-boot-hook.log 2>&1
+	/userdata/valetudo/karcher-cloud-switch.sh cloud >>/tmp/valetudo-boot-hook.log 2>&1
 	touch /tmp/valetudo_cloud_ready
 	return 0
 }
@@ -166,7 +172,15 @@ check_anchors() {
 
 mode_status() {
     echo "mode file          : $(cat "$MODE_FILE" 2>/dev/null || echo '(absent -> cloud)')"
-    if dir_writable /oem/bin; then
+    # mountpoint -q, not dir_writable()'s touch-probe: this codebase's own
+    # established model is that /oem has no third state (stock read-only
+    # vs. the overlay bind-mount, nothing else — see the comment a few
+    # lines down), so "is the overlay mounted" and "is /oem writable" are
+    # the same fact. Reusing the read-only check the very next line already
+    # does keeps mode_status() genuinely zero-write end to end; the actual
+    # touch-probe stays in resolve_target(), which is deciding where to
+    # write, not just reporting.
+    if mountpoint -q /oem 2>/dev/null; then
         echo "/oem               : WRITABLE"
     else
         echo "/oem               : read-only (patch needs 'overlay on' + reboot)"

@@ -12,6 +12,12 @@
 # time (or after aiot-gate.sh overlay off / a factory reset) — everything
 # after that is a normal no-reboot run.
 #
+# Also applies the aiot-gate.sh patch itself (idempotent) before switching
+# into valetudo mode, closing the boot-time window where aiot_client could
+# still reach the real cloud before our redirect took effect. A firmware
+# this wasn't written against fails the patch's anchor check and aborts this
+# script (set -e) rather than activating with that window still open.
+#
 # Usage: ./activate.sh <robot-ip-or-host>
 #
 
@@ -60,6 +66,14 @@ if ! oem_writable; then
     echo "above was lost when the robot rebooted."
     wait_for_reboot
 fi
+
+# Closes the S90->S99 boot-time window where aiot_client could still reach the
+# real cloud (see aiot-gate.sh). check_anchors() inside it refuses to patch a
+# wifi-deamon.sh it doesn't recognize rather than guessing — `set -e` above
+# means that failure aborts this script here, before valetudo mode is ever
+# switched on, instead of silently leaving the race open.
+echo "== Closing the boot-time cloud-contact window =="
+ssh "${SSH_OPTS[@]}" "$REMOTE" '/userdata/valetudo/aiot-gate.sh patch'
 
 ssh "${SSH_OPTS[@]}" "$REMOTE" '/userdata/valetudo/S96valetudo start'
 sleep 2

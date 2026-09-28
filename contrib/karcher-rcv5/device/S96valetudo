@@ -11,12 +11,25 @@
 VALETUDO=/userdata/valetudo/valetudo
 export PATH=/bin:/sbin:/usr/bin:/usr/sbin:/oem/bin
 export VALETUDO_CONFIG_PATH=/userdata/valetudo/config.json
-export VALETUDO_LOG_PATH=/userdata/valetudo/valetudo.log
-
-[ -x "$VALETUDO" ] || exit 0
+# /tmp (tmpfs), not /userdata: this writes continuously while Valetudo runs, and
+# /userdata is flash that can't be replaced on this hardware — avoid the wear.
+# Valetudo's own Logger.js caps it at 4MiB regardless, but that's still 4MiB of
+# needless flash churn over time. Lost on reboot/crash as a result — accepted
+# tradeoff, matches the vendor firmware's own /var/log -> /tmp convention.
+export VALETUDO_LOG_PATH=/tmp/valetudo.log
 
 case "$1" in
   start)
+	# Fail loudly rather than the old blanket "exit 0 if missing" — a
+	# caller (activate.sh, manage.sh activate) switching the robot into
+	# valetudo mode right after this silently no-op'd would report
+	# success with nothing actually running. stop/restart below still
+	# no-op quietly: stopping/restarting something that was never
+	# installed isn't an error the same way starting it is.
+	if [ ! -x "$VALETUDO" ]; then
+		echo "ERROR: $VALETUDO not found or not executable — install.sh may not have finished (binary missing)." >&2
+		exit 1
+	fi
 	# start-stop-daemon -S -x matches by /proc/*/exe, which should already
 	# dedupe against a running instance — but the same busybox build's -K -n
 	# was found to falsely never match a full path (see stop() below), so
@@ -30,6 +43,7 @@ case "$1" in
 	echo "OK"
 	;;
   stop)
+	[ -x "$VALETUDO" ] || exit 0
 	echo "Stopping Valetudo..."
 	# start-stop-daemon -K -n matches against /proc/*/comm (the short process
 	# name, no path) — passing the full $VALETUDO path there never matches
@@ -40,6 +54,7 @@ case "$1" in
 	echo "OK"
 	;;
   restart)
+	[ -x "$VALETUDO" ] || exit 0
 	"$0" stop
 	sleep 1 # Prevent race condition: ensure Valetudo stops before start.
 	"$0" start

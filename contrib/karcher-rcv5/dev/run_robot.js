@@ -3,7 +3,7 @@
 // map pipeline) against the real robot, as opposed to run_dummycloud.js which only
 // exercises KaercherAiotDummycloud in isolation.
 //
-//   sudo node contrib/karcher-rcv5/run_robot.js
+//   sudo node contrib/karcher-rcv5/dev/run_robot.js
 //
 // Run from the Valetudo repo root. Only one of run_dummycloud.js / run_robot.js can
 // be running at a time (both bind 443/8883).
@@ -11,16 +11,17 @@
 const path = require("path");
 const readline = require("readline");
 
-const KaercherRCV5ValetudoRobot = require("../../backend/lib/robots/karcher/KaercherRCV5ValetudoRobot.js");
+const KaercherRCV5ValetudoRobot = require("../../../backend/lib/robots/karcher/KaercherRCV5ValetudoRobot.js");
 
 // Override the (still-provisional) on-device cert paths and bind address with the
 // dev-test ones — same trick as the local smoke tests during development (e.g.
 // overriding KaercherAiotDummycloud.HTTP_PORT), not a change to the class itself.
 // BIND_IP in particular matters: the class default (127.0.13.38) only works once
 // Valetudo runs ON the robot; here it's running on this Mac, reached over the real
-// LAN, so it needs to listen on all interfaces instead.
-KaercherRCV5ValetudoRobot.CERT_PATH = path.join(__dirname, "server_v1.crt");
-KaercherRCV5ValetudoRobot.KEY_PATH = path.join(__dirname, "server.key");
+// LAN, so it needs to listen on all interfaces instead. The dev TLS cert lives one
+// level up, in contrib/karcher-rcv5/ alongside gen_cert.py and install.sh.
+KaercherRCV5ValetudoRobot.CERT_PATH = path.join(__dirname, "..", "server_v1.crt");
+KaercherRCV5ValetudoRobot.KEY_PATH = path.join(__dirname, "..", "server.key");
 KaercherRCV5ValetudoRobot.BIND_IP = "0.0.0.0";
 
 const fakeConfig = {

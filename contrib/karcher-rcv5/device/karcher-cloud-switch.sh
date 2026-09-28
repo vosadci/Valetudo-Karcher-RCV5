@@ -11,15 +11,15 @@
 #
 # STATUS: the cert-swap half (server.crt) is the mechanism a prior session proved live
 # end-to-end (fake HTTP login + fake MQTT broker, zero real-cloud contact). The
-# /etc/hosts bind-mount redirect below is NEW this session, reasoned out from static
-# analysis of the extracted I3.12.90 rootfs (nsswitch.conf: "hosts: files dns" — /etc/hosts
-# is consulted before DNS; busybox.config has no CONFIG_IPTABLES and no separate iptables
-# binary exists, so there is no DNAT capability; CONFIG_FEATURE_MOUNT_FLAGS=y confirms
-# busybox mount supports "-o bind"). It has NOT been run against the real device yet.
+# /etc/hosts bind-mount redirect (HOST_A/HOST_B) is LIVE-CONFIRMED (2026-09-18), reasoned out
+# from static analysis of the extracted I3.12.90 rootfs (nsswitch.conf: "hosts: files dns" —
+# /etc/hosts is consulted before DNS; busybox.config has no CONFIG_IPTABLES and no separate
+# iptables binary exists, so there is no DNAT capability; CONFIG_FEATURE_MOUNT_FLAGS=y confirms
+# busybox mount supports "-o bind"), then verified against the real device.
 # An earlier draft of this script used `route add -host`, which is wrong: the kernel
 # routing table has no bearing on hostname resolution — that happens in userspace via
 # /etc/hosts, which lives on the read-only squashfs root and can't be edited directly,
-# hence the bind-mount. Smoke-test this on the device (mode + revert) before relying on it.
+# hence the bind-mount.
 #
 # The gdroot-g2.crt half (RobotApp's own, separately-linked curl/OpenSSL CA trust
 # bundle — a real 128-cert standard bundle despite the "gdroot" name) was added after
@@ -27,6 +27,15 @@
 # S3 PUT itself (not aiot_client), using its own curl instance, which validates against
 # this file independently of the server.crt swap above. Confirmed live 2026-09-18 (see
 # project_rcv5_valetudo_step7_live_confirmed memory).
+#
+# In valetudo mode, /etc/hosts also blackholes (to 127.0.0.1) several other real,
+# live-resolving 3irobotix/3irobotics hosts the robot itself talks to OUTSIDE the
+# aiot_client bridge (RobotApp's own direct OTA/log channels — see BLOCK_HOSTS below)
+# — added 2026-09-26 after confirming they're not covered by the HOST_A/HOST_B pair.
+# LIVE-CONFIRMED same day: /etc/hosts on the real device came back with exactly the
+# expected 8 lines (2 dummycloud + 6 blackholed), verify_hosts/verify_processes_restarted
+# passed. Confirms the redirect is in place, not (yet, via packet capture) that any of
+# the six were actually about to be dialed.
 #
 # Every step here is reversible: `cloud` mode restores the original hosts file, cert,
 # and CA bundle, and the undo for `valetudo` mode is simply running `cloud` again.
@@ -45,9 +54,69 @@ GDROOT_TARGET="/oem/sysconf/gdroot-g2.crt"
 # for its own logic, it's still driven purely by the CLI arg below.
 MODE_FILE="/userdata/valetudo/mode"
 
-HOST_A="eu-cdndevaiot.3irobotix.net"
-HOST_B="eu-gamqttaiot.3irobotix.net"
+HOST_A_FALLBACK="eu-cdndevaiot.3irobotix.net"
+HOST_B_FALLBACK="eu-gamqttaiot.3irobotix.net"
 VALETUDO_IP="127.0.13.38"
+WIFI_CONF="/userdata/config/wifi.conf"
+
+# Hosts the robot itself talks to OUTSIDE the aiot_client bridge that HOST_A/HOST_B
+# above cover -- confirmed by grepping every oem/bin binary's strings plus
+# oem/sysconf/sysConfig.ini on the extracted I3.12.90 rootfs, and cross-checked
+# against karcher-rcv5-ha's doc/INVESTIGATION.md network table (2026-09-26):
+#   - ota.3irobotix.net       -- sysConfig.ini server_cmd_address/server_map_address/
+#                                 server_ota_address (ports 4010/4030/8001/2300); RobotApp's
+#                                 own CTcpClient, separate from the MQTT bridge. INVESTIGATION.md
+#                                 documents its check endpoint as hit "on every cloud connection".
+#   - eu-cdnallaiot.3irobotix.net -- documented production firmware CDN (INVESTIGATION.md).
+#   - eu-cdnupdatepkgaiot.3irobotix.net -- the real firmware CDN this repo's own
+#                                 upgrade-firmware.sh downloads from (lib.sh FIRMWARE_URL). Not
+#                                 found hardcoded on-device, so nothing currently feeds the robot
+#                                 this URL on its own -- blocked anyway, defense-in-depth.
+#   - log.3irobotics.net      -- sysConfig.ini server_log_address (port 21).
+#   - das.3irobotics.net      -- RobotApp/log-server string-table default, clustered with
+#                                 generic SDK boilerplate; not confirmed as actually dialed, but
+#                                 a real, live-resolving host, so blocked rather than assumed dead.
+#   - test-devlog.3irobotix.net -- log-server's own devlog target string.
+# All confirmed as real, currently-resolving hostnames (not dead/unregistered domains) via `dig`.
+# Redirected to loopback, not VALETUDO_IP: nothing needs to answer for these, unlike
+# HOST_A/HOST_B which the dummycloud actively serves -- a refused/timed-out connection here IS
+# the desired outcome. Applied unconditionally in valetudo mode; mode_cloud's revert-from-backup
+# already removes these along with the HOST_A/HOST_B pair, since HOSTS_BACKUP never contained them.
+BLOCK_HOSTS="ota.3irobotix.net eu-cdnallaiot.3irobotix.net eu-cdnupdatepkgaiot.3irobotix.net log.3irobotics.net das.3irobotics.net test-devlog.3irobotix.net"
+BLOCK_IP="127.0.0.1"
+
+# HOST_A/HOST_B are read live from the robot's own wifi.conf rather than
+# hardcoded, because that's what they actually are: aiot_client's own
+# loadWifiConfig() re-reads http_host/mqtt_host from this exact file on
+# every startup and connects to whatever's there (confirmed via
+# disassembly of aiot_client.bin) -- these two constants used to just be
+# the EU values copied from one real robot's wifi.conf, which only ever
+# worked for a robot whose wifi.conf happened to also say EU. Redirecting
+# whatever's actually in wifi.conf instead works for any region a robot
+# was paired in, with no per-region guessing, and also covers a robot
+# provisioned by provision-wifi.py with placeholder cloud fields (it just
+# redirects those placeholders instead). Fallback to the EU values only if
+# wifi.conf is missing/unreadable -- shouldn't normally happen, since this
+# script already needs a working ssh connection, which itself needs the
+# robot to already be on WiFi.
+wifi_conf_host() {
+    if [ -r "$WIFI_CONF" ]; then
+        sed -n "s/^$1=//p" "$WIFI_CONF" | head -1
+    fi
+}
+
+resolve_hosts() {
+    HOST_A="$(wifi_conf_host http_host || true)"
+    HOST_B="$(wifi_conf_host mqtt_host || true)"
+    if [ -z "$HOST_A" ]; then
+        HOST_A="$HOST_A_FALLBACK"
+        echo "WARNING: could not read http_host from $WIFI_CONF -- using EU fallback ($HOST_A)" >&2
+    fi
+    if [ -z "$HOST_B" ]; then
+        HOST_B="$HOST_B_FALLBACK"
+        echo "WARNING: could not read mqtt_host from $WIFI_CONF -- using EU fallback ($HOST_B)" >&2
+    fi
+}
 
 restart_aiot_client() {
     # Opens aiot-gate.sh's boot gate before the kill, so wifi-deamon.sh is free to
@@ -260,11 +329,18 @@ mode_cloud() {
 mode_valetudo() {
     require_oem_writable
     ensure_backups
+    resolve_hosts
 
-    if [ ! -f "$HOSTS_VALETUDO" ]; then
-        cp "$HOSTS_BACKUP" "$HOSTS_VALETUDO"
-        printf '%s\t%s\n%s\t%s\n' "$VALETUDO_IP" "$HOST_A" "$VALETUDO_IP" "$HOST_B" >> "$HOSTS_VALETUDO"
-    fi
+    # Rebuilt fresh from the backup every time, never cached -- a robot
+    # whose WiFi gets reset and reprovisioned with different http_host/
+    # mqtt_host (different region, or a fresh placeholder pair from
+    # provision-wifi.py) must not keep redirecting a stale hostname pair
+    # left over from an earlier run.
+    cp "$HOSTS_BACKUP" "$HOSTS_VALETUDO"
+    printf '%s\t%s\n%s\t%s\n' "$VALETUDO_IP" "$HOST_A" "$VALETUDO_IP" "$HOST_B" >> "$HOSTS_VALETUDO"
+    for h in $BLOCK_HOSTS; do
+        printf '%s\t%s\n' "$BLOCK_IP" "$h" >> "$HOSTS_VALETUDO"
+    done
 
     switch_hosts "$HOSTS_VALETUDO"
     cp "$CERT_VALETUDO" "$CERT_TARGET_OEM"
@@ -282,16 +358,110 @@ mode_valetudo() {
     restart_robotapp_stack
     verify_processes_restarted
 
-    echo "switched to: local Valetudo dummycloud ($VALETUDO_IP, verified) — undo with: $0 cloud"
+    echo "switched to: local Valetudo dummycloud ($VALETUDO_IP, verified), $(echo "$BLOCK_HOSTS" | wc -w) other cloud host(s) blackholed — undo with: $0 cloud"
     persist_mode "valetudo"
+}
+
+# --- Read-only status reporting (mirrors aiot-gate.sh's mode_status in
+# style). Never writes anything — not even oem_writable()'s throwaway probe
+# file, so this uses mountpoint -q instead. /oem has no third state (see
+# the comment in mode_cloud() above): it's either the stock read-only
+# rootfs or the aiot-gate.sh overlay bind-mount, so mountpoint alone is
+# sufficient here, and it's a directory bind mount — the kind switch_hosts()
+# already documents mountpoint as reliable for (only *file* bind mounts
+# like /etc/hosts are the unreliable case).
+
+cmp_file() {  # $1=target $2=source -> same|differs|target-absent|source-absent
+    [ -f "$1" ] || { echo "target-absent"; return; }
+    [ -f "$2" ] || { echo "source-absent"; return; }
+    if cmp -s "$1" "$2"; then echo same; else echo differs; fi
+}
+
+backup_sanity() {  # $1=path $2=kind(hosts|cert) -> present/absent + a basic well-formedness check.
+    # ensure_backups() only ever checks [ -f ... ] before deciding NOT to
+    # recreate a backup — it never re-verifies an EXISTING one, so a
+    # truncated/corrupted-but-present file would silently look fine there
+    # forever. This doesn't fix that (recreating one automatically here
+    # would risk backing up already-redirected state instead of genuine
+    # stock content — see ensure_backups()'s own comment), just reports it.
+    [ -f "$1" ] || { echo "absent"; return; }
+    [ -s "$1" ] || { echo "present but EMPTY (0 bytes)"; return; }
+    if [ "$2" = cert ]; then
+        if grep -q -F -e "BEGIN CERTIFICATE" "$1" 2>/dev/null; then
+            echo "present, looks like a valid cert"
+        else
+            echo "present but does NOT look like a valid cert (no BEGIN CERTIFICATE marker)"
+        fi
+    else
+        echo "present, non-empty"
+    fi
+}
+
+which_source() {  # $1=target, then "label path" pairs -> first matching label, else (absent)/unknown
+    target="$1"
+    shift
+    [ -f "$target" ] || { echo "(absent)"; return; }
+    while [ $# -ge 2 ]; do
+        label="$1"
+        path="$2"
+        shift 2
+        if [ -f "$path" ] && cmp -s "$target" "$path"; then
+            echo "$label"
+            return
+        fi
+    done
+    echo "unknown (matches neither known source)"
+}
+
+mode_status() {
+    echo "mode file                 : $(cat "$MODE_FILE" 2>/dev/null || echo '(absent -> cloud)')"
+    echo "backup: $HOSTS_BACKUP  : $(backup_sanity "$HOSTS_BACKUP" hosts)"
+    echo "backup: $CERT_BACKUP   : $(backup_sanity "$CERT_BACKUP" cert)"
+    echo "backup: $GDROOT_BACKUP : $(backup_sanity "$GDROOT_BACKUP" cert)"
+
+    echo "/etc/hosts source         : $(which_source /etc/hosts stock "$HOSTS_BACKUP" valetudo "$HOSTS_VALETUDO")"
+    # switch_hosts()'s own comment documents mountpoint giving false
+    # negatives for this FILE bind mount, and three stacked layers going
+    # undetected live once — count them directly instead of trusting it.
+    # `|| true` (not `|| echo 0`): grep -c already prints "0" itself on a
+    # zero-match search of an existing file, but also exits 1 for that —
+    # `|| echo 0` used to add a SECOND "0" line on top of grep's own,
+    # under set -e's command-substitution rules. `|| true` neutralizes the
+    # exit code without adding output; ${hosts_layers:-0} covers the
+    # genuinely-file-absent case (grep prints nothing then).
+    hosts_layers=$(grep -c ' /etc/hosts ' /proc/mounts 2>/dev/null || true)
+    hosts_layers="${hosts_layers:-0}"
+    extra=""
+    if [ "$hosts_layers" -gt 1 ] 2>/dev/null; then
+        extra=" (STACKED - see switch_hosts() comment)"
+    fi
+    echo "/etc/hosts bind layers    : ${hosts_layers}${extra}"
+
+    echo "$CERT_TARGET_OEM      : $(which_source "$CERT_TARGET_OEM" stock "$CERT_BACKUP" valetudo "$CERT_VALETUDO")"
+    echo "$CERT_TARGET_USERDATA : $(which_source "$CERT_TARGET_USERDATA" stock "$CERT_BACKUP" valetudo "$CERT_VALETUDO")"
+    echo "  oem/userdata agree      : $(cmp_file "$CERT_TARGET_OEM" "$CERT_TARGET_USERDATA")"
+
+    if [ ! -f "$GDROOT_TARGET" ]; then
+        gdroot_state="(absent)"
+    elif [ -f "$GDROOT_BACKUP" ] && cmp -s "$GDROOT_BACKUP" "$GDROOT_TARGET"; then
+        gdroot_state="stock"
+    elif [ -f "$GDROOT_BACKUP" ] && [ -f "$CERT_VALETUDO" ] && cat "$GDROOT_BACKUP" "$CERT_VALETUDO" 2>/dev/null | cmp -s - "$GDROOT_TARGET"; then
+        gdroot_state="stock+valetudo-dev-cert"
+    else
+        gdroot_state="unknown (matches neither known composition)"
+    fi
+    echo "gdroot bundle             : $gdroot_state"
+
+    echo "/oem source               : $(mountpoint -q /oem 2>/dev/null && echo 'overlay (writable)' || echo 'stock rootfs (read-only)')"
 }
 
 case "${1:-}" in
     cloud) mode_cloud ;;
     valetudo) mode_valetudo ;;
     backup) mode_backup ;;
+    status) mode_status ;;
     *)
-        echo "usage: $0 {cloud|valetudo|backup}" >&2
+        echo "usage: $0 {cloud|valetudo|backup|status}" >&2
         exit 1
         ;;
 esac

@@ -140,7 +140,7 @@ limitation reproduced in the official app)
 | `CameraLightControlCapability` | ❌ | no property found |
 | `KeyLockCapability` | ❔ | no lock/child-lock property found |
 | `DuststreamingCapability` | ❔ | no particulate-sensor stream property found |
-| `QuirksCapability` | ✅ | Implemented 2026-09-22 — bare core `QuirksCapability`, no Kärcher subclass needed, fed one quirk from `KaercherQuirkFactory.js` (mirrors `ViomiQuirkFactory.js`'s pattern). Currently just "Carpet Display" (`privacy.carpet_show`, see the orphans table below for why this landed here rather than a new capability type). Not exposed over MQTT (no `QuirksCapability` entry in `HandleMappings.js` for any vendor — by design, same as every other vendor's Quirks). **The designed home for further orphans below**, not a shrug. Not yet live-tested |
+| `QuirksCapability` | ✅ | Implemented 2026-09-22 — bare core `QuirksCapability`, no Kärcher subclass needed, fed one quirk from `KaercherQuirkFactory.js` (mirrors `ViomiQuirkFactory.js`'s pattern). Currently just "Carpet Display" (`privacy.carpet_show`, see the orphans table below for why this landed here rather than a new capability type). Not exposed over MQTT (no `QuirksCapability` entry in `HandleMappings.js` for any vendor — by design, same as every other vendor's Quirks). Renders as a dropdown, not a toggle — `Quirks.tsx` always uses a `<Select>` regardless of option count, same for every vendor's quirks. **The designed home for further orphans below**, not a shrug. Live-confirmed 2026-09-24 (carpet display) |
 
 ## Orphans — features with no dedicated Valetudo capability
 
@@ -151,7 +151,7 @@ this — vendor-specific toggles bundled into one class instead of left unimplem
 | Feature | Protocol detail |
 |---|---|
 | Per-room cleaning cycles (x1/x2) *and* the global "Double cleaning" toggle | Same underlying field: `repeat` (`0`/`1`/`2` = single/double/triple) inside `set_preference`'s room-preference array. The global toggle is almost certainly the non-Customise-mode default for the same field |
-| ~~Carpet display toggle~~ | ✅ **Implemented 2026-09-22** as a `QuirksCapability` quirk (`privacy.carpet_show`, `KaercherQuirkFactory.js`) — see the Misc table above. Whether this only affects the Kärcher app's own map rendering or also changes what the robot marks in the map data Valetudo receives is unverified either way; Valetudo's own carpet rendering (`KaercherMapParser.DECODE_CELL`) reads grid bytes unconditionally regardless of this flag |
+| ~~Carpet display toggle~~ | ✅ **Implemented 2026-09-22, live-confirmed 2026-09-24** as a `QuirksCapability` quirk (`privacy.carpet_show`, `KaercherQuirkFactory.js`) — see the Misc table above. Robot-side setting, not app-side: the robot has no cloud connection (Kärcher app isn't used), and toggling it controls what Valetudo itself receives and renders on its map |
 | Voice on/off (distinct from volume) | Likely the `sound` property (in the stream, values unconfirmed) |
 | Robot leveling calibration (off-dock only) | `set_calibration`, in the APK command table |
 | Schedules | **Not actually a gap** — Valetudo schedules locally in core, independent of any vendor capability |

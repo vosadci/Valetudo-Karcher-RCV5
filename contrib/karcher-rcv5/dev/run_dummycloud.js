@@ -2,21 +2,23 @@
 // module itself, just a standalone way to point it at a real network interface for
 // testing against the real robot. Needs root to bind ports 443/8883 on macOS:
 //
-//   sudo node contrib/karcher-rcv5/run_dummycloud.js
+//   sudo node contrib/karcher-rcv5/dev/run_dummycloud.js
 //
 // Run from the Valetudo repo root.
 
 const fs = require("fs");
 const path = require("path");
-const KaercherStaticTLSContext = require("../../backend/lib/robots/karcher/KaercherStaticTLSContext.js");
-const KaercherAiotDummycloud = require("../../backend/lib/robots/karcher/KaercherAiotDummycloud.js");
+const KaercherStaticTLSContext = require("../../../backend/lib/robots/karcher/KaercherStaticTLSContext.js");
+const KaercherAiotDummycloud = require("../../../backend/lib/robots/karcher/KaercherAiotDummycloud.js");
 
-const CERT_DIR = __dirname;
+// The dev TLS cert lives one level up, in contrib/karcher-rcv5/ alongside
+// gen_cert.py and install.sh — this script's own home is dev/.
+const CERT_DIR = path.join(__dirname, "..");
 const cert = fs.readFileSync(path.join(CERT_DIR, "server_v1.crt"), "utf8");
 const key = fs.readFileSync(path.join(CERT_DIR, "server.key"), "utf8");
 const tlsContext = new KaercherStaticTLSContext({cert, key});
 
-const UPLOAD_DIR = path.join(CERT_DIR, "map_captures");
+const UPLOAD_DIR = path.join(__dirname, "map_captures");
 fs.mkdirSync(UPLOAD_DIR, {recursive: true});
 
 const cloud = new KaercherAiotDummycloud({

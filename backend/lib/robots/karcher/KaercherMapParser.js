@@ -173,6 +173,18 @@ class KaercherMapParser {
                 metaData.name = room.roomName;
             }
 
+            // `meterialId` (map protobuf RoomDataInfo field 4, APK's own typo) is a
+            // robot-derived AI floor classification, not the app's set_preference field of
+            // the same name — the app never writes it, only ever displays it as a binary
+            // "smooth" texture. Live-confirmed (2026-09-28) to report real, distinct,
+            // non-default values per room. Values per firmware AI_FLOOR_* disassembly /
+            // APK MapTypeKt.java: 1=concrete/smooth, 2=tile, 3=wood, 10=carpet; 0 or absent
+            // means unset/unknown, left unmapped rather than guessed at.
+            const material = KaercherMapParser.MATERIAL_ID_TO_VALETUDO[room?.meterialId];
+            if (material !== undefined) {
+                metaData.material = material;
+            }
+
             layers.push(new mapEntities.MapLayer({
                 pixels: pixels.segments[segmentIdStr].sort(mapEntities.MapLayer.COORDINATE_TUPLE_SORT).flat(),
                 type: mapEntities.MapLayer.TYPE.SEGMENT,
@@ -468,5 +480,18 @@ class KaercherMapParser {
 }
 
 KaercherMapParser.PIXEL_SIZE = 5; // cm; matches the RCV5's 0.05m/cell grid resolution
+
+// RoomDataInfo.meterialId -> Valetudo MapLayer.MATERIAL. See the comment at its use site
+// above. 0/absent (unset/unknown) is deliberately not a key here.
+KaercherMapParser.MATERIAL_ID_TO_VALETUDO = {
+    1: mapEntities.MapLayer.MATERIAL.GENERIC, // concrete/smooth
+    2: mapEntities.MapLayer.MATERIAL.TILE,
+    // meterialId carries no plank direction — WOOD_VERTICAL is an arbitrary guess,
+    // chosen over plain WOOD (chevron) since straight-plank flooring is far more common
+    // than herringbone in practice, and over WOOD_HORIZONTAL by live observation on this
+    // unit's own floors.
+    3: mapEntities.MapLayer.MATERIAL.WOOD_VERTICAL,
+    10: mapEntities.MapLayer.MATERIAL.CARPET
+};
 
 module.exports = KaercherMapParser;
