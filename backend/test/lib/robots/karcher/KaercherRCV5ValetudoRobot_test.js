@@ -41,6 +41,7 @@ describe("KaercherRCV5ValetudoRobot", () => {
                 "QuirksCapability",
                 "SpeakerTestCapability",
                 "SpeakerVolumeControlCapability",
+                "TotalStatisticsCapability",
                 "WaterUsageControlCapability",
                 "ZoneCleaningCapability"
             ],

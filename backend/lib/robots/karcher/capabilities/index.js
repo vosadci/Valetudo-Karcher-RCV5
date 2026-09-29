@@ -16,6 +16,7 @@ module.exports = {
     KaercherOperationModeControlCapability: require("./KaercherOperationModeControlCapability"),
     KaercherSpeakerTestCapability: require("./KaercherSpeakerTestCapability"),
     KaercherSpeakerVolumeControlCapability: require("./KaercherSpeakerVolumeControlCapability"),
+    KaercherTotalStatisticsCapability: require("./KaercherTotalStatisticsCapability"),
     KaercherWaterUsageControlCapability: require("./KaercherWaterUsageControlCapability"),
     KaercherWifiConfigurationCapability: require("./KaercherWifiConfigurationCapability"),
     KaercherZoneCleaningCapability: require("./KaercherZoneCleaningCapability")

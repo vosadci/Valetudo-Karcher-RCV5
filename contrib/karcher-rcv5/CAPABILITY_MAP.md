@@ -33,13 +33,14 @@ limitation reproduced in the official app)
 | ❌ | Excluded — hardware/model gate, or the pipeline is closed by design |
 | ❔ | No evidence either way |
 
-## Currently implemented (18)
+## Currently implemented (19)
 
 `KaercherBasicControlCapability`, `KaercherFanSpeedControlCapability`,
 `KaercherWaterUsageControlCapability`, `KaercherOperationModeControlCapability`,
 `KaercherZoneCleaningCapability`, `KaercherMapSegmentationCapability`,
 `KaercherConsumableMonitoringCapability`, `KaercherAutoEmptyDockManualTriggerCapability`,
-`KaercherCurrentStatisticsCapability`, `KaercherCombinedVirtualRestrictionsCapability`,
+`KaercherCurrentStatisticsCapability`, `KaercherTotalStatisticsCapability`,
+`KaercherCombinedVirtualRestrictionsCapability`,
 `KaercherSpeakerVolumeControlCapability`, `KaercherSpeakerTestCapability`,
 `KaercherMapSegmentEditCapability`, `KaercherMapSegmentRenameCapability`,
 `KaercherCarpetModeControlCapability`, `KaercherCarpetSensorModeControlCapability`,
@@ -120,7 +121,7 @@ limitation reproduced in the official app)
 | Capability | Status | Detail |
 |---|---|---|
 | `CurrentStatisticsCapability` | ✅ | Implemented 2026-09-20. `cleaning_time` (minutes → seconds) and `cleaning_area` (0.01 m² units → cm²). Note: `quantity` is battery level, device-confirmed — not a session count, so no `COUNT`-type datapoint exists here |
-| `TotalStatisticsCapability` | ⬜ | lifetime history ("cleaning records" screen) is REST-API-only |
+| `TotalStatisticsCapability` | ✅ | The app's own "total" (`CleanRecordActivity`, decompiled APK) is REST-API-only and not a real lifetime counter — it's a rolling 30-day sum of cloud-stored records, unreachable here. But the robot separately pushes an unprompted MQTT event after each clean (`thing/event/clean_record/post`, method `event.clean_record.post`, confirmed via RobotApp binary strings: `event.%s.post`, `serializeCleanRecordEvent`, `DEVICE_CLEAN_RECORD_ADD`). This capability persists every such record (keyed by `record_start_time`, deduping resends) and sums TIME/AREA/COUNT on read — a real, growing total from when Valetudo started listening, just not matching the app's own numbers or any pre-Valetudo history. Field names/units are inferred from the APK's `Record.java` display code, not yet live-confirmed |
 
 ### Audio
 

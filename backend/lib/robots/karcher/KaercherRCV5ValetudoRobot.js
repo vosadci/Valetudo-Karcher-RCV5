@@ -12,6 +12,7 @@ const KaercherWifiApController = require("./KaercherWifiApController");
 const LinuxWifiScanCapability = require("../common/linuxCapabilities/LinuxWifiScanCapability");
 const Logger = require("../../Logger");
 const QuirksCapability = require("../../core/capabilities/QuirksCapability");
+const TotalStatisticsCapability = require("../../core/capabilities/TotalStatisticsCapability");
 const ValetudoRobot = require("../../core/ValetudoRobot");
 const ValetudoRobotError = require("../../entities/core/ValetudoRobotError");
 
@@ -121,6 +122,14 @@ class KaercherRCV5ValetudoRobot extends ValetudoRobot {
                         Logger.info(
                             `KaercherRCV5ValetudoRobot: set_quiet_time reply: ${JSON.stringify(envelope)}`
                         );
+                    } else if (topic.endsWith("/event/clean_record/post")) {
+                        // Unprompted push after each clean, per-record — see
+                        // KaercherTotalStatisticsCapability.js header comment. Logging the raw
+                        // envelope until the field names/units are live-confirmed.
+                        Logger.info(
+                            `KaercherRCV5ValetudoRobot: clean_record event: ${JSON.stringify(envelope)}`
+                        );
+                        this.capabilities[TotalStatisticsCapability.TYPE]?.handleCleanRecordEvent(envelope.params);
                     }
                 },
                 onSpecificUseUpload: (dir, body) => {
@@ -155,6 +164,7 @@ class KaercherRCV5ValetudoRobot extends ValetudoRobot {
             capabilities.KaercherLocateCapability,
             capabilities.KaercherConsumableMonitoringCapability,
             capabilities.KaercherCurrentStatisticsCapability,
+            capabilities.KaercherTotalStatisticsCapability,
             capabilities.KaercherMapSegmentationCapability,
             capabilities.KaercherZoneCleaningCapability,
             capabilities.KaercherCombinedVirtualRestrictionsCapability,
