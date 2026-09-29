@@ -130,6 +130,14 @@ class KaercherRCV5ValetudoRobot extends ValetudoRobot {
                             `KaercherRCV5ValetudoRobot: clean_record event: ${JSON.stringify(envelope)}`
                         );
                         this.capabilities[TotalStatisticsCapability.TYPE]?.handleCleanRecordEvent(envelope.params);
+                    } else if (topic.endsWith("/service_invoke_reply/build_map")) {
+                        // Diagnostic (KaercherMappingPassCapability) — not live-tested yet, no
+                        // known failure mode (map_num >= 5, already mapping, etc.) to react to
+                        // programmatically. Just logging the raw envelope for now, same as
+                        // set_quiet_time above.
+                        Logger.info(
+                            `KaercherRCV5ValetudoRobot: build_map reply: ${JSON.stringify(envelope)}`
+                        );
                     }
                 },
                 onSpecificUseUpload: (dir, body) => {
@@ -166,6 +174,7 @@ class KaercherRCV5ValetudoRobot extends ValetudoRobot {
             capabilities.KaercherCurrentStatisticsCapability,
             capabilities.KaercherTotalStatisticsCapability,
             capabilities.KaercherMapSegmentationCapability,
+            capabilities.KaercherMappingPassCapability,
             capabilities.KaercherZoneCleaningCapability,
             capabilities.KaercherCombinedVirtualRestrictionsCapability,
             capabilities.KaercherMapSegmentEditCapability,
