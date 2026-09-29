@@ -42,6 +42,13 @@ cloud without removing anything, so it's always safe to try).
 verifies it actually connects before saving, and falls back to the previous
 config if it doesn't. Works the same over `ssh` or `adb shell`.
 
+**No shell access at all, just physically at the robot:** hold both top
+buttons for a few seconds — the robot opens its own WiFi AP (no password).
+Join it from a phone, browse to `http://192.168.5.1`, use Valetudo's WiFi
+Connectivity page to pick a new network. Auto-reverts after 10 minutes if
+nothing's configured. See the main `contrib/karcher-rcv5/README.md`,
+"Configuring WiFi via the robot's own AP", for how it works.
+
 **Fully remove Valetudo:** `manage.sh uninstall --purge` — switches back to
 stock cloud mode first and refuses to purge if that fails, so a bad
 cert/hosts state is never left behind without its recovery tools.

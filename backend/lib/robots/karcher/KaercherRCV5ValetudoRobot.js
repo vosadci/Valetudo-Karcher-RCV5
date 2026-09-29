@@ -8,6 +8,7 @@ const KaercherMapParser = require("./KaercherMapParser");
 const KaercherQuirkFactory = require("./KaercherQuirkFactory");
 const KaercherStateDerivation = require("./KaercherStateDerivation");
 const KaercherStaticTLSContext = require("./KaercherStaticTLSContext");
+const KaercherWifiApController = require("./KaercherWifiApController");
 const LinuxWifiScanCapability = require("../common/linuxCapabilities/LinuxWifiScanCapability");
 const Logger = require("../../Logger");
 const QuirksCapability = require("../../core/capabilities/QuirksCapability");
@@ -186,6 +187,9 @@ class KaercherRCV5ValetudoRobot extends ValetudoRobot {
                 robot: this,
                 networkInterface: "wlan0"
             }));
+
+            this.wifiApController = new KaercherWifiApController({robot: this});
+            this.wifiApController.start();
         }
 
         const quirkFactory = new KaercherQuirkFactory({robot: this});
@@ -207,6 +211,10 @@ class KaercherRCV5ValetudoRobot extends ValetudoRobot {
 
         if (this.dummycloud) {
             await this.dummycloud.shutdown();
+        }
+
+        if (this.wifiApController) {
+            this.wifiApController.stop();
         }
     }
 

@@ -193,6 +193,27 @@ case "$SAVE_OUTPUT" in
         ;;
 esac
 
+echo "== Updating wifi.conf's network fields to match =="
+# Keeps wifi.conf's ssid/psk in sync with what was just actually connected -- see
+# manage.sh's update_wifi_conf_network() for the full reasoning (duplicated here, same
+# as every other piece of logic shared between the Mac-side and on-device tools in this
+# project). $SSID_ARG/$PSK_ARG are already shquote()'d with embedded literal double
+# quotes (built above for the wpa_cli staging step), so splicing them in unquoted here
+# reuses that same escaping rather than needing a second scheme.
+cat > "$TMP_SCRIPT" <<EOF
+#!/bin/sh
+set -eu
+WIFI_CONF="/userdata/config/wifi.conf"
+mkdir -p "\$(dirname "\$WIFI_CONF")" 2>/dev/null || true
+[ -f "\$WIFI_CONF" ] || touch "\$WIFI_CONF"
+grep -v '^ssid=' "\$WIFI_CONF" | grep -v '^psk=' > "\$WIFI_CONF.tmp" || true
+echo ssid=$SSID_ARG >> "\$WIFI_CONF.tmp"
+echo psk=$PSK_ARG >> "\$WIFI_CONF.tmp"
+mv "\$WIFI_CONF.tmp" "\$WIFI_CONF"
+EOF
+adb push "$TMP_SCRIPT" "$REMOTE_SCRIPT" >/dev/null
+adb shell "sh $REMOTE_SCRIPT" >/dev/null 2>&1 || warn "WARNING: could not update wifi.conf's ssid/psk — check by hand: adb shell cat /userdata/config/wifi.conf"
+
 echo "== Ensuring wifi.conf has the cloud-pairing fields Valetudo needs =="
 # Fills in any MISSING cloud-pairing fields in wifi.conf on the robot,
 # never touching ones that already exist -- see manage.sh's do_wifi()

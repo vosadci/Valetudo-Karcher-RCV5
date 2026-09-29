@@ -186,6 +186,23 @@ ensure_wifi_conf_cloud_fields() {
     grep -q '^district=' "$WIFI_CONF" || echo "district=DEU" >> "$WIFI_CONF"
 }
 
+# Keeps wifi.conf's ssid/psk in sync with whatever network wpa_cli just actually
+# connected to (do_wifi() below only used to update wpa_supplicant.conf, leaving
+# wifi.conf's own ssid/psk silently stale after a reconfiguration — which the Valetudo
+# fork's KaercherWifiApController.js shadow-copies for its AP-mode timeout/revert, so a
+# stale wifi.conf here means a stale revert target there). Replaces any existing
+# ssid=/psk= lines rather than appending-if-missing, since the whole point is updating
+# them even when a stale pair is already present. Two separate `grep -v` calls, not one
+# with `\|` alternation -- safer against BusyBox grep variance.
+update_wifi_conf_network() {
+    mkdir -p "$(dirname "$WIFI_CONF")" 2>/dev/null || true
+    [ -f "$WIFI_CONF" ] || touch "$WIFI_CONF"
+    grep -v '^ssid=' "$WIFI_CONF" | grep -v '^psk=' > "$WIFI_CONF.tmp" || true
+    printf 'ssid="%s"\n' "$1" >> "$WIFI_CONF.tmp"
+    printf 'psk="%s"\n' "$2" >> "$WIFI_CONF.tmp"
+    mv "$WIFI_CONF.tmp" "$WIFI_CONF"
+}
+
 # Mirrors configure-wifi.sh's stage/verify/save design (see that script's
 # own header comment for the full reasoning) minus the adb push/shell
 # wrapper — this runs directly on the robot, so there's no second shell
@@ -293,6 +310,9 @@ do_wifi() {
             exit 1
             ;;
     esac
+
+    echo "== Updating wifi.conf's network fields to match =="
+    update_wifi_conf_network "$ssid" "$password"
 
     echo "== Ensuring wifi.conf has the cloud-pairing fields Valetudo needs =="
     ensure_wifi_conf_cloud_fields
