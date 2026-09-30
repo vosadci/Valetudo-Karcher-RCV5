@@ -30,6 +30,9 @@ class KaercherRCV5ValetudoRobot extends ValetudoRobot {
         // Same fields the work_mode/status decision tree and battery flag need,
         // cached across partial prop.post pushes (the device never sends a full
         // snapshot unprompted — see doc/PROTOCOL.md §6).
+        /** @type {Set<{params: object, resolve: () => void}>} */
+        this.propPostWaiters = new Set();
+
         this.ephemeralState = {
             work_mode: undefined,
             status: undefined,
@@ -107,6 +110,7 @@ class KaercherRCV5ValetudoRobot extends ValetudoRobot {
                 onIncomingCloudMessage: (topic, envelope) => {
                     if (envelope?.method === "prop.post" && envelope.params) {
                         this.parseAndUpdateState(envelope.params);
+                        this.notifyPropPostWaiters(envelope.params);
                     } else if (topic.endsWith("/service/property/get_reply") && envelope?.code === 0 && envelope.data) {
                         // Reply to sendPropertyGet() — a different envelope shape entirely
                         // ({code, data}, not {method, params}), confirmed against
@@ -348,7 +352,81 @@ class KaercherRCV5ValetudoRobot extends ValetudoRobot {
      * @return {Promise<void>}
      */
     async sendPropertySet(params) {
-        return this.dummycloud.publishCommand("service/property/set", "prop.set", params, "1.0");
+        // The robot acknowledges a set before it has applied it: a prop.get sent right after
+        // still returns the old value, and the new value only arrives as a prop.post a few
+        // ms later (live capture 2026-09-30, privacy.carpet_turbo). publishCommand() resolves
+        // on publish, so without waiting for that echo every capability's read-after-write
+        // returns stale state and the WebUI needs a second press. Falls through on timeout
+        // for properties the robot never echoes.
+        const echoed = this.waitForPropPostEcho(params, KaercherRCV5ValetudoRobot.SET_ECHO_TIMEOUT_MS);
+
+        try {
+            await this.dummycloud.publishCommand("service/property/set", "prop.set", params, "1.0");
+        } catch (e) {
+            this.cancelPropPostWait(echoed);
+            throw e;
+        }
+
+        await echoed.promise;
+    }
+
+    /**
+     * @param {object} params properties as sent in a prop.set
+     * @param {number} timeoutMs
+     * @return {{promise: Promise<void>, waiter: {params: object, resolve: () => void}}}
+     */
+    waitForPropPostEcho(params, timeoutMs) {
+        let waiter;
+        const promise = new Promise((resolve) => {
+            const timer = setTimeout(() => {
+                this.propPostWaiters.delete(waiter);
+                Logger.debug(`KaercherRCV5ValetudoRobot: no prop.post echo for ${JSON.stringify(params)} within ${timeoutMs}ms`);
+                resolve();
+            }, timeoutMs);
+
+            waiter = {
+                params: params,
+                resolve: () => {
+                    clearTimeout(timer);
+                    resolve();
+                }
+            };
+            this.propPostWaiters.add(waiter);
+        });
+
+        return {promise: promise, waiter: waiter};
+    }
+
+    /**
+     * @param {{waiter: {params: object, resolve: () => void}}} echo
+     */
+    cancelPropPostWait(echo) {
+        this.propPostWaiters.delete(echo.waiter);
+        echo.waiter.resolve();
+    }
+
+    /**
+     * Resolves every pending set whose sent values are all present in this prop.post.
+     *
+     * @param {object} posted
+     */
+    notifyPropPostWaiters(posted) {
+        const isSubset = (sent, actual) => {
+            return Object.entries(sent).every(([key, value]) => {
+                if (typeof value === "object" && value !== null) {
+                    return typeof actual?.[key] === "object" && actual[key] !== null && isSubset(value, actual[key]);
+                }
+
+                return actual?.[key] === value;
+            });
+        };
+
+        this.propPostWaiters.forEach((waiter) => {
+            if (isSubset(waiter.params, posted)) {
+                this.propPostWaiters.delete(waiter);
+                waiter.resolve();
+            }
+        });
     }
 
     /**
@@ -499,6 +577,15 @@ class KaercherRCV5ValetudoRobot extends ValetudoRobot {
             }));
         }
 
+        if (data.tank_state !== undefined) {
+            this.upsertAttachment(stateAttrs.AttachmentStateAttribute.TYPE.WATERTANK, (data.tank_state & KaercherConst.TANK_STATE_WATERTANK_BIT) !== 0, data.tank_state);
+            this.upsertAttachment(stateAttrs.AttachmentStateAttribute.TYPE.DUSTBIN, (data.tank_state & KaercherConst.TANK_STATE_DUSTBIN_BIT) !== 0, data.tank_state);
+        }
+
+        if (data.cloth_state !== undefined) {
+            this.upsertAttachment(stateAttrs.AttachmentStateAttribute.TYPE.MOP, data.cloth_state === 1, data.cloth_state);
+        }
+
         if (data.charge_station_type !== undefined) {
             const hasStation = data.charge_station_type !== 0;
 
@@ -522,6 +609,19 @@ class KaercherRCV5ValetudoRobot extends ValetudoRobot {
         }
 
         this.emitStateAttributesUpdated();
+    }
+
+    /**
+     * @param {import("../../entities/state/attributes/AttachmentStateAttribute").AttachmentStateAttributeType} type
+     * @param {boolean} attached
+     * @param {number} rawValue
+     */
+    upsertAttachment(type, attached, rawValue) {
+        this.state.upsertFirstMatchingAttribute(new stateAttrs.AttachmentStateAttribute({
+            type: type,
+            attached: attached,
+            metaData: {rawValue: rawValue}
+        }));
     }
 
     /**
@@ -612,6 +712,20 @@ class KaercherRCV5ValetudoRobot extends ValetudoRobot {
         });
     }
 
+    getModelDetails() {
+        return Object.assign(
+            {},
+            super.getModelDetails(),
+            {
+                supportedAttachments: [
+                    stateAttrs.AttachmentStateAttribute.TYPE.DUSTBIN,
+                    stateAttrs.AttachmentStateAttribute.TYPE.WATERTANK,
+                    stateAttrs.AttachmentStateAttribute.TYPE.MOP,
+                ]
+            }
+        );
+    }
+
     getManufacturer() {
         return "Kärcher";
     }
@@ -682,5 +796,8 @@ KaercherRCV5ValetudoRobot.IDENTITY_PATH = "/userdata/valetudo/device-identity.js
 // same way contrib/karcher-rcv5/dev/run_dummycloud.js already does for
 // KaercherAiotDummycloud directly.
 KaercherRCV5ValetudoRobot.BIND_IP = KaercherAiotDummycloud.BIND_IP;
+
+/** Upper bound on how long a prop.set waits for the robot's prop.post echo. */
+KaercherRCV5ValetudoRobot.SET_ECHO_TIMEOUT_MS = 1500;
 
 module.exports = KaercherRCV5ValetudoRobot;

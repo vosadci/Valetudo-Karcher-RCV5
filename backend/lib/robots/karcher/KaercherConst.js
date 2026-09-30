@@ -121,6 +121,13 @@ const ZONE_TYPE_WALL = 2;
 const ZONE_TYPE_NOMOP = 6;
 
 /**
+ * tank_state is a bitmask (device-confirmed 2026-09-30: 3 = both, 1 = dustbin only,
+ * 2 = water tank only, 0 = neither). The dustbin has no property of its own.
+ */
+const TANK_STATE_DUSTBIN_BIT = 1;
+const TANK_STATE_WATERTANK_BIT = 2;
+
+/**
  * doc/PROTOCOL.md "Room management": robot-side language code for the `lang` field
  * in split_room/arrange_room, from the app's own LanguageHelper.java enum
  * (LANGUAGE_TYPE_ENGLISH = 2; LANGUAGE_TYPE_CHINESE = 1; no defined 0 value at all).
@@ -299,6 +306,8 @@ module.exports = {
     ZONE_TYPE_NOGO: ZONE_TYPE_NOGO,
     ZONE_TYPE_WALL: ZONE_TYPE_WALL,
     ZONE_TYPE_NOMOP: ZONE_TYPE_NOMOP,
+    TANK_STATE_DUSTBIN_BIT: TANK_STATE_DUSTBIN_BIT,
+    TANK_STATE_WATERTANK_BIT: TANK_STATE_WATERTANK_BIT,
     LANGUAGE_TYPE_ENGLISH: LANGUAGE_TYPE_ENGLISH,
     AI_OBJECT_TYPE_LABELS: AI_OBJECT_TYPE_LABELS,
     FAULT_MESSAGES: FAULT_MESSAGES,
