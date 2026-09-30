@@ -33,19 +33,25 @@ limitation reproduced in the official app)
 | ❌ | Excluded — hardware/model gate, or the pipeline is closed by design |
 | ❔ | No evidence either way |
 
-## Currently implemented (18)
+## Currently implemented (21, plus 2 embedded-only)
 
 `KaercherBasicControlCapability`, `KaercherFanSpeedControlCapability`,
 `KaercherWaterUsageControlCapability`, `KaercherOperationModeControlCapability`,
 `KaercherZoneCleaningCapability`, `KaercherMapSegmentationCapability`,
+`KaercherMappingPassCapability`,
 `KaercherConsumableMonitoringCapability`, `KaercherAutoEmptyDockManualTriggerCapability`,
-`KaercherCurrentStatisticsCapability`, `KaercherCombinedVirtualRestrictionsCapability`,
+`KaercherCurrentStatisticsCapability`, `KaercherTotalStatisticsCapability`,
+`KaercherCombinedVirtualRestrictionsCapability`,
 `KaercherSpeakerVolumeControlCapability`, `KaercherSpeakerTestCapability`,
 `KaercherMapSegmentEditCapability`, `KaercherMapSegmentRenameCapability`,
 `KaercherCarpetModeControlCapability`, `KaercherCarpetSensorModeControlCapability`,
-`KaercherObstacleAvoidanceControlCapability` — plus a bare core `QuirksCapability`
+`KaercherObstacleAvoidanceControlCapability`, `KaercherLocateCapability`,
+`KaercherDoNotDisturbCapability` — plus a bare core `QuirksCapability`
 (no Kärcher-specific subclass needed) fed one quirk from `KaercherQuirkFactory.js`.
-**Not yet live-tested** — built and unit-tested only, see the per-row notes below.
+Embedded-only (need the robot's own Linux, gated on `config.embedded`):
+`KaercherWifiConfigurationCapability`, `LinuxWifiScanCapability`, plus the button-triggered
+open-AP WiFi management controller (not itself a capability — see the main `README.md`).
+Most rows here are **not yet live-tested** — see the per-row notes below for what actually is.
 
 ## Full map
 
@@ -61,7 +67,7 @@ limitation reproduced in the official app)
 | `GoToLocationCapability` | 🟨 | `set_point_clean`/`start_point_clean` in the APK command table, payload never captured. Ambiguous vs. "clean a spot" below — needs one live capture to settle whether that app feature is this or a small `ZoneCleaningCapability` rectangle |
 | `ManualControlCapability` | 🔶 | **Corrected 2026-09-20** — previously marked ❌ on the strength of `set_direction` being tagged "RCV2 only" in the APK command table. That's superseded by RobotApp disassembly (`CAiotParseBuf::parseSetRemoteCtrlReq`, `SetRemoteControl` cloud op): `direction`/`ctrlValue` are parsed straight into the motion layer, independent of that APK string. Matches the app's own four-direction, hold-to-move joystick. Firmware-confirmed; MQTT method name and payload shape not yet captured |
 | `HighResolutionManualControlCapability` | ❌ | the joystick is discrete 4-direction, not continuous — `ManualControlCapability` is the right shape |
-| `MappingPassCapability` | ❔ | "Quick map creation" exists in the app (listed under both Map list and Functional settings — almost certainly one feature reachable two ways), but no MQTT command identified yet |
+| `MappingPassCapability` | ✅ | `service.build_map {ctrl_value: 1}` — confirmed both client-side (`MapsVM.buildMap()`, decompiled APK) and firmware-side (`RobotApp` strings: `parseSetBuildMapModeEi`, `parseSetAIStartBuildMap`). Same payload `KaercherBasicControlCapability.start()` already sends as its own no-rooms-known fallback. Not yet live-tested |
 | `CleanRouteControlCapability` | 🟨 | `mop_route`/`sweep_type` are in the property stream; valid enum values never reversed |
 
 ### Map & rooms
@@ -78,7 +84,7 @@ limitation reproduced in the official app)
 | `MapSnapshotCapability` | ❔/⬜ | closest analog is `upload_by_mapid`/multi-map switching — not a snapshot-restore concept |
 | `PersistentMapControlCapability` | ❔ | multi-map (`map_num`, `house_infos`) is always-on; no toggle to disable found |
 | `PendingMapChangeHandlingCapability` | ❔ | no evidence found |
-| *(no matching capability)* — map list: create/delete/rename/set-current | — | **Gap in Valetudo's taxonomy, not the RCV5's.** Protocol has `current_map_id`, `map_num`, `house_infos`, `set_current_map_id`; the app does delete/rename/set-current. None of Valetudo's 53 capability types model a map-list UI |
+| *(no matching capability)* — map list: list/switch/rename/delete | — | **Gap in Valetudo's taxonomy, not the RCV5's — the RCV5 side is now fully reverse-engineered.** All five commands confirmed both client-side (`MapsVM.java`, decompiled APK) and firmware-side (`RobotApp` strings): `service.get_map_list` (`service_invoke/get_map_list`, `{}` → reply `{"map_list":[{"id","name","cur"}]}`), `service.set_cur_map` (`service_invoke/set_cur_map`, `{"map_id": N}` — this is the switch-map command a prior investigation had marked as never reverse-engineered), `service.rename_map` (`service_invoke/rename_map`, `{"map_id": N, "map_name": "..."}`), `service.del_map` (`service_invoke/del_map`, `{"map_id": N}`). None of Valetudo's 53 capability types model a map-list UI — building this needs new core capability type(s) plus new frontend, not just a Kärcher-side class. See `project_rcv5_valetudo_multimap_gap` / `project_rcv5_valetudo_map_management` memory |
 
 ### Floor sensing / navigation behavior
 
@@ -120,7 +126,7 @@ limitation reproduced in the official app)
 | Capability | Status | Detail |
 |---|---|---|
 | `CurrentStatisticsCapability` | ✅ | Implemented 2026-09-20. `cleaning_time` (minutes → seconds) and `cleaning_area` (0.01 m² units → cm²). Note: `quantity` is battery level, device-confirmed — not a session count, so no `COUNT`-type datapoint exists here |
-| `TotalStatisticsCapability` | ⬜ | lifetime history ("cleaning records" screen) is REST-API-only |
+| `TotalStatisticsCapability` | ✅ | The app's own "total" (`CleanRecordActivity`, decompiled APK) is REST-API-only and not a real lifetime counter — it's a rolling 30-day sum of cloud-stored records, unreachable here. But the robot separately pushes an unprompted MQTT event after each clean (`thing/event/clean_record/post`, method `event.clean_record.post`, confirmed via RobotApp binary strings: `event.%s.post`, `serializeCleanRecordEvent`, `DEVICE_CLEAN_RECORD_ADD`). This capability persists every such record (keyed by `record_start_time`, deduping resends) and sums TIME/AREA/COUNT on read — a real, growing total from when Valetudo started listening, just not matching the app's own numbers or any pre-Valetudo history. Field names/units are inferred from the APK's `Record.java` display code, not yet live-confirmed |
 
 ### Audio
 
@@ -134,9 +140,9 @@ limitation reproduced in the official app)
 
 | Capability | Status | Detail |
 |---|---|---|
-| `LocateCapability` | 🟩 | `find_device`, APK-confirmed |
-| `DoNotDisturbCapability` | 🟩 | `service.set_quiet_time` + `quiet_is_open`/`quiet_begin_time`/`quiet_end_time` — APK-verified |
-| `WifiConfigurationCapability` / `WifiScanCapability` | 🟩 | not a cloud-protocol feature — Valetudo runs as root directly on the robot's Linux, so these could be implemented against the OS network stack, independent of Kärcher's cloud |
+| `LocateCapability` | ✅ | `find_device`, reuses the already-live-confirmed `service_invoke` call `KaercherSpeakerTestCapability` uses |
+| `DoNotDisturbCapability` | ✅ | `service.set_quiet_time` + `quiet_is_open`/`quiet_begin_time`/`quiet_end_time`. Mechanics live-confirmed (full wire round-trip); the timezone basis and real enforcement are still open questions, not yet resolved — see `temporal-honking-treasure.md`'s "Add Do Not Disturb" plan section |
+| `WifiConfigurationCapability` / `LinuxWifiScanCapability` | ✅ | Embedded-only, runs against the robot's own Linux `wpa_cli`/`iw`, independent of Kärcher's cloud. Full button-triggered open-AP WiFi management (shadow-copy/restore, timeout/revert) built on top — live-confirmed end to end, see the main `README.md` |
 | `CameraLightControlCapability` | ❌ | no property found |
 | `KeyLockCapability` | ❔ | no lock/child-lock property found |
 | `DuststreamingCapability` | ❔ | no particulate-sensor stream property found |
@@ -263,11 +269,14 @@ the user, not made inline from this one.
 3. ~~`SpeakerVolumeControlCapability` + `SpeakerTestCapability`~~ — done, 2026-09-22
 4. ~~`CombinedVirtualRestrictionsCapability` write side~~ — done, 2026-09-22
 5. ~~`MapSegmentEditCapability` + `MapSegmentRenameCapability`~~ — done, 2026-09-22, all live-confirmed
-6. `LocateCapability` — `find_device`
-7. `DoNotDisturbCapability` — quiet mode
+6. ~~`LocateCapability`~~ — done, `find_device`, live-confirmed
+7. ~~`DoNotDisturbCapability`~~ — done (mechanics live-confirmed; timezone/enforcement still open, see plan doc)
 8. ~~`CarpetModeControlCapability` + `CarpetSensorModeControlCapability`~~ — done, 2026-09-22 (not yet live-tested)
 9. `VoicePackManagementCapability` — `voice_type`
 10. ~~`ObstacleAvoidanceControlCapability`~~ — done, 2026-09-22, plus a `QuirksCapability` carpet-display quirk (not yet live-tested)
+11. ~~`TotalStatisticsCapability`~~ — done, built from `event.clean_record.post`, not yet live-tested
+12. ~~`MappingPassCapability`~~ — done, `service.build_map {ctrl_value: 1}`, not yet live-tested
+13. Map list (list/switch/rename/delete saved maps) — protocol fully reverse-engineered this session, but needs new Valetudo core taxonomy + frontend, not just a Kärcher capability — see the Map & rooms table above
 
 Everything 🟨 or 🔶 needs one live MQTT capture before shipping — don't
 implement against APK-only payloads. The single highest-value capture is the

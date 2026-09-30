@@ -12,10 +12,12 @@ module.exports = {
     KaercherMapSegmentEditCapability: require("./KaercherMapSegmentEditCapability"),
     KaercherMapSegmentRenameCapability: require("./KaercherMapSegmentRenameCapability"),
     KaercherMapSegmentationCapability: require("./KaercherMapSegmentationCapability"),
+    KaercherMappingPassCapability: require("./KaercherMappingPassCapability"),
     KaercherObstacleAvoidanceControlCapability: require("./KaercherObstacleAvoidanceControlCapability"),
     KaercherOperationModeControlCapability: require("./KaercherOperationModeControlCapability"),
     KaercherSpeakerTestCapability: require("./KaercherSpeakerTestCapability"),
     KaercherSpeakerVolumeControlCapability: require("./KaercherSpeakerVolumeControlCapability"),
+    KaercherTotalStatisticsCapability: require("./KaercherTotalStatisticsCapability"),
     KaercherWaterUsageControlCapability: require("./KaercherWaterUsageControlCapability"),
     KaercherWifiConfigurationCapability: require("./KaercherWifiConfigurationCapability"),
     KaercherZoneCleaningCapability: require("./KaercherZoneCleaningCapability")

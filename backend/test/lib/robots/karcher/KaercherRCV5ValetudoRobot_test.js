@@ -36,11 +36,13 @@ describe("KaercherRCV5ValetudoRobot", () => {
                 "MapSegmentEditCapability",
                 "MapSegmentRenameCapability",
                 "MapSegmentationCapability",
+                "MappingPassCapability",
                 "ObstacleAvoidanceControlCapability",
                 "OperationModeControlCapability",
                 "QuirksCapability",
                 "SpeakerTestCapability",
                 "SpeakerVolumeControlCapability",
+                "TotalStatisticsCapability",
                 "WaterUsageControlCapability",
                 "ZoneCleaningCapability"
             ],

@@ -1,6 +1,7 @@
 const fs = require("fs");
 const spawnSync = require("child_process").spawnSync;
 
+const KaercherWifiApController = require("../KaercherWifiApController");
 const LinuxWifiConfigurationCapability = require("../../common/linuxCapabilities/LinuxWifiConfigurationCapability");
 const Logger = require("../../../Logger");
 const misc = require("../../../utils/misc");
@@ -39,12 +40,31 @@ class KaercherWifiConfigurationCapability extends LinuxWifiConfigurationCapabili
             throw new Error("Invalid wifiConfig");
         }
 
+        if (this.robot.wifiApController?.isApModeActive() === true) {
+            // wpa_cli's staging flow below is impossible right now -- the radio is in AP
+            // mode, wpa_supplicant isn't even running. Delegate to the controller, which
+            // switches via wifiManager's own wifi.conf/wifi_reconnect mechanism instead.
+            await this.robot.wifiApController.applyNewConfiguration(
+                wifiConfig.ssid,
+                wifiConfig.credentials.typeSpecificSettings.password
+            );
+
+            return;
+        }
+
         if (spawnSync("pidof", ["wpa_supplicant"]).status !== 0) {
             throw new Error("wpa_supplicant is not running — something else is wrong first");
         }
 
         const ssid = wifiConfig.ssid;
         const password = wifiConfig.credentials.typeSpecificSettings.password;
+
+        // select_network (below) disables every *other* configured network in
+        // wpa_supplicant's live state, not just the new one — if the new network never
+        // connects, just removing the staged one isn't enough to roll back: whatever was
+        // previously connected would stay disabled until a reboot. Capture it now so the
+        // failure path can explicitly re-select it.
+        const previousNetId = this.getCurrentNetworkId();
 
         // Staged (added, not yet saved) network id. Cleared to undefined once there's
         // nothing left to roll back — either full success, or a live-but-unsaved
@@ -82,12 +102,30 @@ class KaercherWifiConfigurationCapability extends LinuxWifiConfigurationCapabili
 
             netId = undefined;
 
+            this.updateWifiConfNetwork(ssid, password);
             this.ensureWifiConfCloudFields();
         } finally {
             if (netId !== undefined) {
                 spawnSync("wpa_cli", ["-i", this.networkInterface, "remove_network", netId]);
+
+                if (previousNetId !== undefined) {
+                    // Mirrors the same select_network call that put us in this situation —
+                    // closest available match to "restore exactly what was selected before".
+                    spawnSync("wpa_cli", ["-i", this.networkInterface, "select_network", previousNetId]);
+                }
             }
         }
+    }
+
+    /**
+     * @private
+     * @return {string|undefined} the currently connected/selected network id, if any
+     */
+    getCurrentNetworkId() {
+        const status = this.runWpaCli(["status"], {allowFail: true});
+        const match = status.match(/^id=(\d+)$/m);
+
+        return match?.[1];
     }
 
     /**
@@ -109,6 +147,37 @@ class KaercherWifiConfigurationCapability extends LinuxWifiConfigurationCapabili
         }
 
         return out;
+    }
+
+    /**
+     * Keeps wifi.conf's ssid/psk in sync with whatever network wpa_supplicant just
+     * actually connected to. Nothing used to do this on the STA path — only
+     * wpa_supplicant.conf got updated — which left wifi.conf (and therefore
+     * KaercherWifiApController's shadow copy of it) silently stale after a normal
+     * reconfiguration through this path, manage.sh's do_wifi, or configure-wifi.sh. That
+     * staleness would surface later as a bad AP-mode timeout/revert target: reverting to
+     * a network wifi.conf remembers but wpa_supplicant.conf no longer has selected.
+     *
+     * @private
+     * @param {string} ssid
+     * @param {string} password
+     */
+    updateWifiConfNetwork(ssid, password) {
+        const path = KaercherWifiConfigurationCapability.WIFI_CONF_PATH;
+        let fields = {};
+
+        try {
+            fields = KaercherWifiApController.parseWifiConf(fs.readFileSync(path, "utf8"));
+        } catch (e) {
+            if (e.code !== "ENOENT") {
+                throw e;
+            }
+        }
+
+        fields.ssid = `"${ssid}"`;
+        fields.psk = `"${password}"`;
+
+        fs.writeFileSync(path, KaercherWifiApController.buildWifiConf(fields));
     }
 
     /**

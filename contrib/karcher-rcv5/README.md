@@ -394,7 +394,13 @@ reset:
 
 1. The Kärcher app's "reset and remove robot" action.
 2. Holding both of the robot's top physical buttons together for 5+ seconds (announces
-   "network and wifi configuration mode").
+   "network and wifi configuration mode") does **not** do the wipe described below. It's a
+   different mechanism (RobotApp → `wifiManager`, not the recessed button's GPIO81 path)
+   that brings up the robot's own onboarding AP and only deletes
+   `/userdata/config/wifi.conf` — `wpa_supplicant.conf` (the actual saved WiFi credentials)
+   and the rest of `/userdata/config` are untouched, and no reboot occurs. See
+   "Configuring WiFi via the robot's own AP" below — with Valetudo installed, this is the
+   preferred way to use this button.
 3. The small recessed reset button under the main cover (announces "System has been
    restored").
 
@@ -535,6 +541,40 @@ as an unexplained silent command failure — re-run `install.sh` after re-pairin
 confirm the firmware is back to `I3.12.90` before assuming everything else is fine.
 (See "Updating firmware" below if you'd rather not go through the app at all — though
 re-pairing remains the only end-to-end-confirmed path.)
+
+### Configuring WiFi via the robot's own AP (preferred)
+
+With Valetudo installed and running, the two-top-buttons combo needs none of the
+`adb`/laptop-checkout workarounds above — it's a self-contained flow through Valetudo's
+own UI.
+
+Hold both top buttons for a few seconds. The robot announces "Reset the wifi connection
+and enter network configuration mode" and brings up its own open WiFi access point
+(no password). Join it from any phone or laptop, then browse to `http://192.168.5.1` —
+Valetudo's WebUI is reachable there, including its WiFi Connectivity page, which shows
+live status and lets you scan for and submit a new network's SSID/password directly —
+no app, no cloud, no `adb`.
+
+What's actually happening (`backend/lib/robots/karcher/KaercherWifiApController.js`):
+
+- The AP is `wifiManager`'s own onboarding mechanism (`hostapd`+`dnsmasq` on `wlan0` at
+  `192.168.5.1`) — Valetudo doesn't build its own AP, it detects and works with the
+  robot's existing one.
+- The button's only real side effect is deleting `/userdata/config/wifi.conf`
+  (`wpa_supplicant.conf`, the actual saved credentials, is untouched). Valetudo shadow-copies
+  `wifi.conf` continuously and restores it automatically once AP mode ends, so this doesn't
+  silently break cloud-pairing the way it would without Valetudo running.
+- **10-minute window**: if nothing gets configured within 10 minutes of the AP coming up,
+  it automatically reverts to whatever network was active before — no manual recovery
+  needed. This is a *single* window covering both connecting to the AP and submitting the
+  form, not two separate allowances, so don't dawdle before joining.
+- Submitting a new network writes it into `wifi.conf` and lets `wifiManager`'s own
+  `StopAp()`/`wpaConnect()` do the actual switch; if it fails to connect, the same
+  auto-revert logic falls back to the previous network.
+
+This only applies while Valetudo is installed and running. Without it, the button still
+works exactly as it always did — the app's own SoftAP re-pairing flow, or the `adb`/
+`provision-wifi.py` workarounds elsewhere in this section.
 
 ## Troubleshooting
 
