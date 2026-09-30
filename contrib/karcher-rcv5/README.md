@@ -80,18 +80,29 @@ it's the robot's own real CA bundle, pulled off the device itself by
 
 ## Building the Valetudo binary
 
-From the repo root:
+From anywhere in the repo:
 
 ```sh
-npm run build --workspace=frontend
-npm run build_armv7 --workspace=backend
+contrib/karcher-rcv5/build.sh
 ```
 
-Run the frontend build first: `backend/package.json`'s `pkg` config bundles
-`../frontend/build` as an asset, and `WebServer.js` serves it as the web
-UI, so the armv7 build needs it to already exist. The second command
-regenerates the Kärcher protobufs, then compiles the actual ~34MB static
-armv7 binary via `pkg` to `build/armv7/valetudo`.
+This runs three steps in order (it is safe to run them by hand from the repo
+root instead):
+
+```sh
+npm run build --workspace=frontend      # Valetudo's own web UI
+node contrib/karcher-rcv5/webui/build.js # the Kärcher UI, served at /karcher-ui/
+npm run build_armv7 --workspace=backend  # the armv7 binary embedding both
+```
+
+The order matters. `backend/package.json`'s `pkg` config bundles
+`../frontend/build` as an asset, and `WebServer.js` serves that directory
+as the web UI, so both UIs must already be in it. The Kärcher UI builds into
+`frontend/build/karcher-ui/`, and the frontend build wipes `frontend/build`
+first, so it has to come after it. Skipping step 2 still produces a working
+binary, just without `/karcher-ui/`. The last step regenerates the Kärcher
+protobufs, then compiles the actual ~34MB static armv7 binary via `pkg` to
+`build/armv7/valetudo`.
 
 The first time you run the `pkg` step, it downloads a prebuilt Node runtime
 for `node22-linuxstatic-armv7` (tens of MB) into `build_dependencies/` —
