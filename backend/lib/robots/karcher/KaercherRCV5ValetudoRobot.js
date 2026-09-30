@@ -35,6 +35,7 @@ class KaercherRCV5ValetudoRobot extends ValetudoRobot {
         this.propPostWaiters = new Set();
         /** @type {Set<(list: Array<{id: number, name: string, cur: boolean}>) => void>} */
         this.mapListWaiters = new Set();
+        this.snapshotRetries = 0;
 
         this.ephemeralState = {
             work_mode: undefined,
@@ -119,7 +120,7 @@ class KaercherRCV5ValetudoRobot extends ValetudoRobot {
                         // ({code, data}, not {method, params}), confirmed against
                         // karcher-home's own _process_mqtt_message()/_update_device_properties(),
                         // which dispatches purely by topic rather than by any method field.
-                        this.parseAndUpdateState(envelope.data);
+                        this.handlePropertySnapshot(envelope.data);
                     } else if (topic.endsWith("/service_invoke_reply/set_quiet_time")) {
                         // PoC diagnostic (KaercherDoNotDisturbCapability) — previously silently
                         // dropped, since nothing registered a reply_listener for this specific
@@ -586,6 +587,35 @@ class KaercherRCV5ValetudoRobot extends ValetudoRobot {
     }
 
     /**
+     * Straight after a boot the robot answers prop.get from a zeroed struct (live 2026-09-30:
+     * status -1, mode -21, water -11, quantity 0, map_num 0). Applying it shows 0% battery until the
+     * next push, which for quantity only comes when the level changes. status -1 marks that reply, so it
+     * is dropped and the request repeated until the robot has real values.
+     *
+     * @param {object} data
+     */
+    handlePropertySnapshot(data) {
+        if (data?.status !== -1) {
+            this.snapshotRetries = 0;
+            this.parseAndUpdateState(data);
+            return;
+        }
+
+        if (this.snapshotRetries >= KaercherRCV5ValetudoRobot.SNAPSHOT_MAX_RETRIES) {
+            Logger.warn("KaercherRCV5ValetudoRobot: the robot kept answering prop.get with placeholder values, giving up");
+            return;
+        }
+
+        this.snapshotRetries++;
+        Logger.debug(`KaercherRCV5ValetudoRobot: ignoring placeholder prop.get reply (retry ${this.snapshotRetries})`);
+        setTimeout(() => {
+            this.sendPropertyGet().catch(e => {
+                Logger.warn("KaercherRCV5ValetudoRobot: failed to repeat the property snapshot request", e);
+            });
+        }, KaercherRCV5ValetudoRobot.SNAPSHOT_RETRY_MS);
+    }
+
+    /**
      * @param {object} data flat property object from a prop.post push — may be partial
      */
     parseAndUpdateState(data) {
@@ -949,6 +979,8 @@ KaercherRCV5ValetudoRobot.BIND_IP = KaercherAiotDummycloud.BIND_IP;
 /** Upper bound on how long a prop.set waits for the robot's prop.post echo. */
 KaercherRCV5ValetudoRobot.SET_ECHO_TIMEOUT_MS = 1500;
 KaercherRCV5ValetudoRobot.MAP_LIST_TIMEOUT_MS = 5000;
+KaercherRCV5ValetudoRobot.SNAPSHOT_RETRY_MS = 5000;
+KaercherRCV5ValetudoRobot.SNAPSHOT_MAX_RETRIES = 12;
 KaercherRCV5ValetudoRobot.MAP_CHANGE_SETTLE_MS = 500;
 
 module.exports = KaercherRCV5ValetudoRobot;
