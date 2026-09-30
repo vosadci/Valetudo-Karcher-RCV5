@@ -1,6 +1,7 @@
 import React from "react";
 import {Capability} from "api";
 import CleaningOptions from "../CleaningOptions";
+import MapsPage from "../MapsPage";
 import About from "valetudo/About";
 import Analytics from "valetudo/Analytics";
 import Help from "valetudo/Help";
@@ -50,6 +51,7 @@ export interface PageDef {
 export const PAGE_REGISTRY: Record<string, PageDef> = {
     // Not in any section: opened from the action bar.
     "/cleaning_options": {title: "Cleaning options", component: CleaningOptions},
+    "/karcher/maps": {title: "Saved maps", component: MapsPage},
     "/robot/consumables": {
         title: "Consumables",
         component: Consumables,
@@ -169,6 +171,7 @@ export const SECTIONS: Record<string, SectionDef> = {
             ]
         }
     },
+    savedMaps: {title: "Saved maps", pageKeys: ["/karcher/maps"]},
     connectivity: {title: "Connectivity Options", pageKeys: [], hub: ConnectivityOptions},
     robotOptions: {title: "Robot Options", pageKeys: [], hub: RobotOptions},
     valetudoOptions: {title: "Valetudo Options", pageKeys: [], hub: ValetudoOptions},

@@ -43,6 +43,8 @@ describe("KaercherBasicControlCapability", () => {
 
             assert.strictEqual(sent[0].name, "build_map");
             assert.deepStrictEqual(sent[0].params, {ctrl_value: 1});
+            assert.strictEqual(sent[1].name, "set_room_clean");
+            assert.deepStrictEqual(sent[1].params, {room_ids: [], ctrl_value: 1, clean_type: 0});
         });
 
         it("stop()/pause() send set_room_clean", async () => {

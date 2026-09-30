@@ -15,7 +15,7 @@ class KaercherMappingPassCapability extends MappingPassCapability {
      * @returns {Promise<void>}
      */
     async startMapping() {
-        await this.robot.sendServiceInvoke("build_map", {ctrl_value: 1});
+        await this.robot.startMapBuild();
     }
 }
 
