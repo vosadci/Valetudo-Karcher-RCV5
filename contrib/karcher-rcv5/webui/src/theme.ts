@@ -57,6 +57,16 @@ export const buildTheme = (mode: PaletteMode): Theme => {
                         textTransform: "none",
                     },
                 },
+                // Valetudo's own controls (e.g. the dock's Empty button) use outlined + color="inherit",
+                // which draws the border in the text colour. Use the divider colour like the action bar squares.
+                variants: [
+                    {
+                        props: {variant: "outlined", color: "inherit"},
+                        style: ({theme}) => {
+                            return {borderColor: theme.palette.divider};
+                        },
+                    },
+                ],
             },
         },
     });

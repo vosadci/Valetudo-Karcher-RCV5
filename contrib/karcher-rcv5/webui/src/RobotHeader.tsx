@@ -20,6 +20,18 @@ const STATUS_COLOR: Partial<Record<StatusState["value"], string>> = {
 };
 const OFFLINE_COLOR = "#9e9e9e";
 
+// The card's wording (i18n.js STATE_LABELS) for Valetudo's lowercase status values.
+const STATUS_LABEL: Record<StatusState["value"], string> = {
+    cleaning: "Cleaning",
+    returning: "Returning",
+    moving: "Moving",
+    manual_control: "Manual control",
+    docked: "Docked",
+    idle: "Ready",
+    paused: "Paused",
+    error: "Error",
+};
+
 const RobotHeader = (): React.ReactElement => {
     const {data: info} = useRobotInformationQuery();
     const {data: status} = useRobotStatusQuery();
@@ -56,10 +68,12 @@ const RobotHeader = (): React.ReactElement => {
                 <Typography sx={{fontWeight: 800, fontSize: 18, letterSpacing: "-0.025em"}} noWrap>
                     {robotName}
                 </Typography>
-                <Box sx={{display: "flex", alignItems: "center", gap: "7px"}}>
+                <Box sx={{display: "flex", alignItems: "center", gap: "7px", minWidth: 0}}>
                     <Box sx={{width: 10, height: 10, borderRadius: "50%", backgroundColor: statusColor, flexShrink: 0}}/>
-                    <Typography sx={{fontSize: 13, fontWeight: 600, color: statusColor}}>
-                        {status?.value ?? "Unknown"}
+                    <Typography sx={{fontSize: 13, fontWeight: 600, color: statusColor}} noWrap>
+                        {status ? STATUS_LABEL[status.value] ?? status.value : "Unknown"}
+                        {/* Backend detail for the current state, e.g. "Self-checking" */}
+                        {status?.message ? ` · ${status.message}` : ""}
                     </Typography>
                 </Box>
             </Box>
