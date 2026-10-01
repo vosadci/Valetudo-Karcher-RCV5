@@ -1,4 +1,5 @@
 const fs = require("fs");
+const https = require("https");
 
 const capabilities = require("./capabilities");
 const entities = require("../../entities");
@@ -11,10 +12,12 @@ const KaercherMapsRouter = require("./KaercherMapsRouter");
 const KaercherQuirkFactory = require("./KaercherQuirkFactory");
 const KaercherStateDerivation = require("./KaercherStateDerivation");
 const KaercherStaticTLSContext = require("./KaercherStaticTLSContext");
+const KaercherWebUiCert = require("./KaercherWebUiCert");
 const KaercherWifiApController = require("./KaercherWifiApController");
 const LinuxWifiScanCapability = require("../common/linuxCapabilities/LinuxWifiScanCapability");
 const Logger = require("../../Logger");
 const QuirksCapability = require("../../core/capabilities/QuirksCapability");
+const Tools = require("../../utils/Tools");
 const TotalStatisticsCapability = require("../../core/capabilities/TotalStatisticsCapability");
 const ValetudoRobot = require("../../core/ValetudoRobot");
 const ValetudoRobotError = require("../../entities/core/ValetudoRobotError");
@@ -193,6 +196,10 @@ class KaercherRCV5ValetudoRobot extends ValetudoRobot {
         // so it stays off until the user turns it on.
         this.cameraEnabled = knownIdentity.cameraEnabled === true;
 
+        // Self-signed HTTPS for the web UI. Off by default; toggled by the HTTPS quirk and
+        // persisted here so it comes back up after a reboot.
+        this.httpsEnabled = knownIdentity.httpsEnabled === true;
+
         /** @type {Array<new (options: {robot: KaercherRCV5ValetudoRobot}) => import("../../core/capabilities/Capability")>} */
         const capabilitiesToRegister = [
             capabilities.KaercherBasicControlCapability,
@@ -249,7 +256,8 @@ class KaercherRCV5ValetudoRobot extends ValetudoRobot {
             quirks: [
                 quirkFactory.getQuirk(KaercherQuirkFactory.KNOWN_QUIRKS.CARPET_DISPLAY),
                 quirkFactory.getQuirk(KaercherQuirkFactory.KNOWN_QUIRKS.AUTO_UPGRADE),
-                quirkFactory.getQuirk(KaercherQuirkFactory.KNOWN_QUIRKS.CAMERA)
+                quirkFactory.getQuirk(KaercherQuirkFactory.KNOWN_QUIRKS.CAMERA),
+                quirkFactory.getQuirk(KaercherQuirkFactory.KNOWN_QUIRKS.WEBUI_HTTPS)
             ]
         }));
 
@@ -259,6 +267,8 @@ class KaercherRCV5ValetudoRobot extends ValetudoRobot {
     }
 
     async shutdown() {
+        this.stopWebUiHttps();
+
         await this.cameraStream.shutdown();
         await super.shutdown();
 
@@ -281,7 +291,7 @@ class KaercherRCV5ValetudoRobot extends ValetudoRobot {
      * silently failing until the next real login happened to occur.
      *
      * @protected
-     * @return {{sn?: string, mac?: string, hasAutoEmptyDock?: boolean, cameraEnabled?: boolean}}
+     * @return {{sn?: string, mac?: string, hasAutoEmptyDock?: boolean, cameraEnabled?: boolean, httpsEnabled?: boolean}}
      */
     readKnownIdentity() {
         try {
@@ -537,6 +547,94 @@ class KaercherRCV5ValetudoRobot extends ValetudoRobot {
                 return this.cameraEnabled;
             }
         }).getRouter());
+
+        // Kept so the HTTPS quirk can (re)start a second server on the same app at
+        // runtime. This runs inside the core WebServer, so the whole app — auth,
+        // routes, UI — is already wired by the time we get it.
+        this.webserverApp = app;
+
+        if (this.httpsEnabled) {
+            this.startWebUiHttps();
+        }
+    }
+
+    /**
+     * Toggled by the "Web UI HTTPS" quirk. Persists like cameraEnabled so it survives a
+     * reboot, and starts or stops the second (HTTPS) server right away.
+     *
+     * @param {boolean} enabled
+     */
+    async setHttpsEnabled(enabled) {
+        this.httpsEnabled = enabled;
+        this.persistDeviceState({httpsEnabled: enabled});
+
+        if (enabled) {
+            this.startWebUiHttps();
+        } else {
+            this.stopWebUiHttps();
+        }
+    }
+
+    /**
+     * Runs a self-signed HTTPS server next to the core HTTP one, on the same express
+     * app, so auth and every route apply unchanged. The cert is generated on the robot
+     * (no openssl CLI there) and persisted, so browsers keep their accepted exception
+     * across reboots. Waits for a sane clock first because the cert's validity window is
+     * anchored to the current time. Deliberately not wired into core WebServer — keeping
+     * it here keeps the fork's core diff at zero and upstream merges clean.
+     *
+     * @private
+     */
+    startWebUiHttps() {
+        if (this.webUiHttpsServer || this.webserverApp === undefined) {
+            return;
+        }
+
+        if (!KaercherWebUiCert.IS_CLOCK_SANE(new Date())) {
+            if (this.webUiCertClockWaitLogged !== true) {
+                Logger.info("KaercherRCV5ValetudoRobot: clock not set yet, delaying web UI HTTPS");
+                this.webUiCertClockWaitLogged = true;
+            }
+            this.webUiCertClockTimeout = setTimeout(() => {
+                this.startWebUiHttps();
+            }, KaercherRCV5ValetudoRobot.WEBUI_HTTPS_CLOCK_RETRY_MS);
+
+            return;
+        }
+
+        KaercherWebUiCert.LOAD_OR_GENERATE({
+            certPath: KaercherRCV5ValetudoRobot.WEBUI_CERT_PATH,
+            keyPath: KaercherRCV5ValetudoRobot.WEBUI_KEY_PATH,
+            hostnames: [Tools.GET_ZEROCONF_HOSTNAME(), "localhost"],
+            ips: ["127.0.0.1", ...Tools.GET_CURRENT_HOST_IP_ADDRESSES()],
+            now: new Date()
+        }).then(tls => {
+            if (!this.httpsEnabled) { // disabled again while the cert was generating
+                return;
+            }
+
+            this.webUiHttpsServer = https.createServer(tls, this.webserverApp);
+            this.webUiHttpsServer.on("error", e => {
+                Logger.error("KaercherRCV5ValetudoRobot: web UI HTTPS server error", e);
+            });
+            this.webUiHttpsServer.listen(KaercherRCV5ValetudoRobot.WEBUI_HTTPS_PORT, () => {
+                Logger.info("Webserver (HTTPS) running on port", KaercherRCV5ValetudoRobot.WEBUI_HTTPS_PORT);
+            });
+        }).catch(e => {
+            Logger.error("KaercherRCV5ValetudoRobot: failed to set up web UI HTTPS", e);
+        });
+    }
+
+    /**
+     * @private
+     */
+    stopWebUiHttps() {
+        clearTimeout(this.webUiCertClockTimeout);
+
+        if (this.webUiHttpsServer) {
+            this.webUiHttpsServer.close();
+            this.webUiHttpsServer = undefined;
+        }
     }
 
     /**
@@ -996,6 +1094,13 @@ KaercherRCV5ValetudoRobot.KEY_PATH = "/userdata/valetudo/server.key";
 // Persisted sn/mac/hasAutoEmptyDock, learned once and reused on every later restart —
 // see readKnownIdentity()/persistDeviceState() above for why this exists.
 KaercherRCV5ValetudoRobot.IDENTITY_PATH = "/userdata/valetudo/device-identity.json";
+// Self-signed web UI cert, generated on first HTTPS start — see KaercherWebUiCert
+KaercherRCV5ValetudoRobot.WEBUI_CERT_PATH = "/userdata/valetudo/webui.crt";
+KaercherRCV5ValetudoRobot.WEBUI_KEY_PATH = "/userdata/valetudo/webui.key";
+// 8443, not 443: the dummycloud binds 127.0.13.38:443 and on Linux a 0.0.0.0:443
+// listener would collide with it.
+KaercherRCV5ValetudoRobot.WEBUI_HTTPS_PORT = 8443;
+KaercherRCV5ValetudoRobot.WEBUI_HTTPS_CLOCK_RETRY_MS = 30 * 1000;
 // Defaults to the real on-device loopback-alias bind (see KaercherAiotDummycloud.BIND_IP's
 // own comment) — only correct once Valetudo actually runs ON the robot. Dev-Mac test
 // harnesses running Valetudo remotely need to override this to "0.0.0.0" instead, the
