@@ -214,6 +214,40 @@ whatever that script wrote. Either way, the redirect matches what's
 actually on disk — this only falls back to hardcoded EU values (with a
 printed warning) if `wifi.conf` is somehow missing or unreadable.
 
+## The Kärcher UI (`/karcher-ui/`)
+
+A second web UI, built from `contrib/karcher-rcv5/webui/` and served next to Valetudo's own
+at `http://<ROBOT_IP>/karcher-ui/`. It reuses Valetudo's pages and adds two Kärcher-only ones:
+
+- **Saved maps** (Menu → Saved maps): list, rename, choose, delete and create maps. Backed by
+  `/api/v2/karcher/maps/`. Creating a map drives the robot around the home without cleaning and
+  adds a new map. It needs the robot docked. Map names are limited to 24 characters. The current
+  map can't be deleted.
+- **Camera** (Menu → Robot → Camera): live video from the robot's camera, also while it cleans.
+  It plays through `mpegts.js`, which is a root `devDependency` (`npm ci` installs it).
+
+### The camera is off by default
+
+Turn it on under Robot Options → Quirks → Camera. Until then the stream route answers 403 and
+the Camera page says so.
+
+What happens when someone opens the page: Valetudo starts the robot's own demo encoder
+(`rkmedia_vi_venc_rtsp_test -d rkispp_scale1`), reads its H.264 stream on `127.0.0.1:554`, and
+repackages it as MPEG-TS for the browser. It stops the encoder about 10 seconds after the last
+viewer leaves. Nothing is transcoded. A stale encoder left behind by a killed Valetudo is stopped
+at the next start. Don't start `rkmedia_vi_venc_rtsp_test` by hand while using the camera page.
+
+**Security: read this before turning it on.** While the camera runs, the demo encoder's RTSP
+server on port 554 listens on every interface and has no login. Anyone on the network can watch
+the stream in that time. The robot has no firewall (no netfilter in its kernel), and the demo has
+no bind or password option, so Valetudo can't close this. Valetudo's own password protects only
+the web UI on port 80. Turn on Valetudo's authentication, and keep the camera off when you don't
+need it. A reboot always clears a stuck encoder.
+
+Tested so far: macOS Safari. The stream is built to the constraints Safari's media pipeline
+needs, which is why parameter sets and delimiters are handled the way they are in
+`backend/lib/robots/karcher/camera/`. Chrome plays it too.
+
 ## Uninstalling
 
 From `contrib/karcher-rcv5/`:
@@ -663,6 +697,11 @@ script).
   it. Static finding only (binary strings), not confirmed reachable or
   exercised — no fix attempted here without a live capture confirming
   it's real traffic, not just unreferenced strings.
+
+- **The camera's RTSP port is open to the network while it runs.** See "The Kärcher UI" above.
+  The demo encoder binds port 554 on all interfaces with no authentication, and the robot's
+  kernel has no netfilter to block it. Opt-in plus a short run time are the only mitigations
+  so far. A loopback-only bind (a small `LD_PRELOAD` shim) is the intended fix and isn't built.
 
 ### Irreplaceable files
 

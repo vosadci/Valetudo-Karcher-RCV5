@@ -3,6 +3,8 @@ const fs = require("fs");
 const capabilities = require("./capabilities");
 const entities = require("../../entities");
 const KaercherAiotDummycloud = require("./KaercherAiotDummycloud");
+const KaercherCameraRouter = require("./KaercherCameraRouter");
+const KaercherCameraStream = require("./camera/KaercherCameraStream");
 const KaercherConst = require("./KaercherConst");
 const KaercherMapParser = require("./KaercherMapParser");
 const KaercherMapsRouter = require("./KaercherMapsRouter");
@@ -36,6 +38,7 @@ class KaercherRCV5ValetudoRobot extends ValetudoRobot {
         /** @type {Set<(list: Array<{id: number, name: string, cur: boolean}>) => void>} */
         this.mapListWaiters = new Set();
         this.snapshotRetries = 0;
+        this.cameraStream = new KaercherCameraStream();
 
         this.ephemeralState = {
             work_mode: undefined,
@@ -186,6 +189,10 @@ class KaercherRCV5ValetudoRobot extends ValetudoRobot {
         // endpoint despite appearing to exist.
         this.knownHasAutoEmptyDock = knownIdentity.hasAutoEmptyDock;
 
+        // The camera feed is only reachable through the unauthenticated RTSP port while it runs,
+        // so it stays off until the user turns it on.
+        this.cameraEnabled = knownIdentity.cameraEnabled === true;
+
         /** @type {Array<new (options: {robot: KaercherRCV5ValetudoRobot}) => import("../../core/capabilities/Capability")>} */
         const capabilitiesToRegister = [
             capabilities.KaercherBasicControlCapability,
@@ -241,7 +248,8 @@ class KaercherRCV5ValetudoRobot extends ValetudoRobot {
             robot: this,
             quirks: [
                 quirkFactory.getQuirk(KaercherQuirkFactory.KNOWN_QUIRKS.CARPET_DISPLAY),
-                quirkFactory.getQuirk(KaercherQuirkFactory.KNOWN_QUIRKS.AUTO_UPGRADE)
+                quirkFactory.getQuirk(KaercherQuirkFactory.KNOWN_QUIRKS.AUTO_UPGRADE),
+                quirkFactory.getQuirk(KaercherQuirkFactory.KNOWN_QUIRKS.CAMERA)
             ]
         }));
 
@@ -251,6 +259,7 @@ class KaercherRCV5ValetudoRobot extends ValetudoRobot {
     }
 
     async shutdown() {
+        await this.cameraStream.shutdown();
         await super.shutdown();
 
         if (this.dummycloud) {
@@ -272,7 +281,7 @@ class KaercherRCV5ValetudoRobot extends ValetudoRobot {
      * silently failing until the next real login happened to occur.
      *
      * @protected
-     * @return {{sn?: string, mac?: string, hasAutoEmptyDock?: boolean}}
+     * @return {{sn?: string, mac?: string, hasAutoEmptyDock?: boolean, cameraEnabled?: boolean}}
      */
     readKnownIdentity() {
         try {
@@ -290,6 +299,18 @@ class KaercherRCV5ValetudoRobot extends ValetudoRobot {
      */
     persistIdentity(sn, mac) {
         this.persistDeviceState({sn: sn, mac: mac});
+    }
+
+    /**
+     * @param {boolean} enabled
+     */
+    async setCameraEnabled(enabled) {
+        this.cameraEnabled = enabled;
+        this.persistDeviceState({cameraEnabled: enabled});
+
+        if (!enabled) {
+            await this.cameraStream.shutdown();
+        }
     }
 
     /**
@@ -510,6 +531,12 @@ class KaercherRCV5ValetudoRobot extends ValetudoRobot {
         super.initModelSpecificWebserverRoutes(app);
 
         app.use("/api/v2/karcher/maps/", new KaercherMapsRouter({robot: this}).getRouter());
+        app.use("/api/v2/karcher/camera/", new KaercherCameraRouter({
+            cameraStream: this.cameraStream,
+            isEnabled: () => {
+                return this.cameraEnabled;
+            }
+        }).getRouter());
     }
 
     /**

@@ -1,5 +1,6 @@
 import React from "react";
 import {Capability} from "api";
+import CameraPage from "../CameraPage";
 import CleaningOptions from "../CleaningOptions";
 import MapsPage from "../MapsPage";
 import About from "valetudo/About";
@@ -52,6 +53,7 @@ export const PAGE_REGISTRY: Record<string, PageDef> = {
     // Not in any section: opened from the action bar.
     "/cleaning_options": {title: "Cleaning options", component: CleaningOptions},
     "/karcher/maps": {title: "Saved maps", component: MapsPage},
+    "/karcher/camera": {title: "Camera", component: CameraPage, layout: "fill"},
     "/robot/consumables": {
         title: "Consumables",
         component: Consumables,
@@ -142,7 +144,7 @@ export interface SectionDef {
 export const SECTIONS: Record<string, SectionDef> = {
     robot: {
         title: "Robot",
-        pageKeys: ["/robot/consumables", "/robot/manual_control", "/robot/total_statistics", "/robot/camera"],
+        pageKeys: ["/robot/consumables", "/robot/manual_control", "/robot/total_statistics", "/robot/camera", "/karcher/camera"],
         gate: {
             type: "anyof",
             capabilities: [
