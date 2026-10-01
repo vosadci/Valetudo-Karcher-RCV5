@@ -75,4 +75,24 @@ describe("KaercherQuirkFactory", () => {
             await assert.rejects(() => quirk.setter("maybe"));
         });
     });
+
+    describe("camera", () => {
+        it("reflects and changes whether the camera is enabled", async () => {
+            const calls = [];
+            const robot = {
+                cameraEnabled: false,
+                setCameraEnabled: async (enabled) => {
+                    calls.push(enabled);
+                    robot.cameraEnabled = enabled;
+                }
+            };
+            const quirk = new KaercherQuirkFactory({robot: robot}).getQuirk(KaercherQuirkFactory.KNOWN_QUIRKS.CAMERA);
+
+            assert.strictEqual(await quirk.getter(), "off");
+            await quirk.setter("on");
+            assert.strictEqual(await quirk.getter(), "on");
+            assert.deepStrictEqual(calls, [true]);
+            await assert.rejects(quirk.setter("maybe"));
+        });
+    });
 });

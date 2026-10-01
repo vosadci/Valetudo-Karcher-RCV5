@@ -116,6 +116,26 @@ class KaercherQuirkFactory {
                         });
                     }
                 });
+            case KaercherQuirkFactory.KNOWN_QUIRKS.CAMERA:
+                return new Quirk({
+                    id: id,
+                    title: "Camera",
+                    // While the camera runs, the robot's RTSP server (port 554) is open to the whole
+                    // network without a login, and this robot has no firewall to close it. Off by default.
+                    description: "Allows watching the robot's camera. While someone watches, the video is " +
+                        "also reachable on the robot's network without a password.",
+                    options: ["on", "off"],
+                    getter: async () => {
+                        return this.robot.cameraEnabled ? "on" : "off";
+                    },
+                    setter: async (value) => {
+                        if (value !== "on" && value !== "off") {
+                            throw new Error(`Received invalid value ${value}`);
+                        }
+
+                        await this.robot.setCameraEnabled(value === "on");
+                    }
+                });
             default:
                 throw new Error(`There's no quirk with id ${id}`);
         }
@@ -124,7 +144,8 @@ class KaercherQuirkFactory {
 
 KaercherQuirkFactory.KNOWN_QUIRKS = {
     CARPET_DISPLAY: "b3c9b8d9-2f7e-4b3b-8a2c-6e2b1e6f8a9e",
-    AUTO_UPGRADE: "d1a4e9b2-6c3f-4a5d-9e7b-2f8c1d6a3b90"
+    AUTO_UPGRADE: "d1a4e9b2-6c3f-4a5d-9e7b-2f8c1d6a3b90",
+    CAMERA: "7a2f6c1e-3b84-4d59-a0e6-5c9d8b1f4e27"
 };
 
 module.exports = KaercherQuirkFactory;

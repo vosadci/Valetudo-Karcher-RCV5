@@ -57,7 +57,7 @@ class KaercherBasicControlCapability extends BasicControlCapability {
             // attempts, MQTT delivery confirmed via aiot_client's own trace log, zero
             // reaction). build_map's params shape (`{ctrl_value: 1}`) is APK-derived from
             // MapsVM.buildMap(), not yet independently device-verified.
-            await this.robot.sendServiceInvoke("build_map", {ctrl_value: 1});
+            await this.robot.startMapBuild();
             return;
         }
 

@@ -105,6 +105,25 @@ describe("KaercherRCV5ValetudoRobot", () => {
         assert.strictEqual(dockStatus.value, "idle");
     });
 
+    it("maps tank_state bits and cloth_state onto AttachmentStateAttribute", () => {
+        const robot = buildRobot();
+        const attached = (type) => robot.state.getFirstMatchingAttribute({attributeClass: "AttachmentStateAttribute", attributeType: type})?.attached;
+
+        const cases = [
+            {tank: 3, cloth: 1, dustbin: true, watertank: true, mop: true},
+            {tank: 1, cloth: 0, dustbin: true, watertank: false, mop: false},
+            {tank: 2, cloth: 0, dustbin: false, watertank: true, mop: false},
+            {tank: 0, cloth: 0, dustbin: false, watertank: false, mop: false}
+        ];
+
+        for (const c of cases) {
+            robot.parseAndUpdateState({tank_state: c.tank, cloth_state: c.cloth});
+            assert.strictEqual(attached("dustbin"), c.dustbin);
+            assert.strictEqual(attached("watertank"), c.watertank);
+            assert.strictEqual(attached("mop"), c.mop);
+        }
+    });
+
     it("tracks current_map_id from prop.post pushes", () => {
         const robot = buildRobot();
 
@@ -392,6 +411,61 @@ describe("KaercherRCV5ValetudoRobot", () => {
             robot.parseAndUpdateState({firmware_code: "99"});
 
             assert.strictEqual(robot.getProperties().firmwareVersion, "99");
+        });
+    });
+
+    describe("sendPropertySet echo wait", () => {
+        function buildRobotWithFakeCloud(publish) {
+            const robot = buildRobot();
+
+            robot.dummycloud = {publishCommand: publish};
+
+            return robot;
+        }
+
+        it("resolves only once the robot's prop.post carries the sent value, so reads after the set see it", async () => {
+            const robot = buildRobotWithFakeCloud(async () => undefined);
+            let resolved = false;
+
+            const pending = robot.sendPropertySet({privacy: {carpet_turbo: 1}}).then(() => {
+                resolved = true;
+            });
+
+            // an unrelated echo and a stale value must not release the waiter
+            robot.notifyPropPostWaiters({custom_type: 1});
+            robot.notifyPropPostWaiters({privacy: {carpet_turbo: 0, carpet_avoid: 1}});
+            await new Promise(resolve => setImmediate(resolve));
+            assert.strictEqual(resolved, false);
+
+            robot.notifyPropPostWaiters({privacy: {carpet_turbo: 1, carpet_avoid: 1}});
+            await pending;
+
+            assert.strictEqual(resolved, true);
+            assert.strictEqual(robot.propPostWaiters.size, 0);
+        });
+
+        it("falls through after the timeout when the robot never echoes", async () => {
+            const original = KaercherRCV5ValetudoRobot.SET_ECHO_TIMEOUT_MS;
+            KaercherRCV5ValetudoRobot.SET_ECHO_TIMEOUT_MS = 20;
+
+            try {
+                const robot = buildRobotWithFakeCloud(async () => undefined);
+
+                await robot.sendPropertySet({volume: 3});
+
+                assert.strictEqual(robot.propPostWaiters.size, 0);
+            } finally {
+                KaercherRCV5ValetudoRobot.SET_ECHO_TIMEOUT_MS = original;
+            }
+        });
+
+        it("rejects and leaves no waiter behind when the publish fails", async () => {
+            const robot = buildRobotWithFakeCloud(async () => {
+                throw new Error("no MQTT client connected");
+            });
+
+            await assert.rejects(robot.sendPropertySet({wind: 2}), /no MQTT client connected/);
+            assert.strictEqual(robot.propPostWaiters.size, 0);
         });
     });
 });

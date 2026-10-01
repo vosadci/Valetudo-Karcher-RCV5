@@ -20,13 +20,14 @@ function buildRobot() {
 }
 
 describe("KaercherMappingPassCapability", () => {
-    it("startMapping() sends build_map with ctrl_value: 1", async () => {
+    it("startMapping() sends build_map, then a full-house set_room_clean", async () => {
         const {robot, sent} = buildRobot();
 
         await new KaercherMappingPassCapability({robot: robot}).startMapping();
 
         assert.deepStrictEqual(sent, [
-            {name: "build_map", params: {ctrl_value: 1}}
+            {name: "build_map", params: {ctrl_value: 1}},
+            {name: "set_room_clean", params: {room_ids: [], ctrl_value: 1, clean_type: 0}}
         ]);
     });
 });

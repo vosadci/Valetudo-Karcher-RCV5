@@ -116,6 +116,7 @@ class KaercherTotalStatisticsCapability extends TotalStatisticsCapability {
      * @return {{start: number, useTime: number, area: number}|null}
      */
     static parseRecord(rawParams) {
+        /** @type {any} */
         let data = rawParams;
 
         if (typeof data === "string") {

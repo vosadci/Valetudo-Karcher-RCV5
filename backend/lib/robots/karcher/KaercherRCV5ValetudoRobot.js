@@ -3,8 +3,11 @@ const fs = require("fs");
 const capabilities = require("./capabilities");
 const entities = require("../../entities");
 const KaercherAiotDummycloud = require("./KaercherAiotDummycloud");
+const KaercherCameraRouter = require("./KaercherCameraRouter");
+const KaercherCameraStream = require("./camera/KaercherCameraStream");
 const KaercherConst = require("./KaercherConst");
 const KaercherMapParser = require("./KaercherMapParser");
+const KaercherMapsRouter = require("./KaercherMapsRouter");
 const KaercherQuirkFactory = require("./KaercherQuirkFactory");
 const KaercherStateDerivation = require("./KaercherStateDerivation");
 const KaercherStaticTLSContext = require("./KaercherStaticTLSContext");
@@ -30,6 +33,13 @@ class KaercherRCV5ValetudoRobot extends ValetudoRobot {
         // Same fields the work_mode/status decision tree and battery flag need,
         // cached across partial prop.post pushes (the device never sends a full
         // snapshot unprompted — see doc/PROTOCOL.md §6).
+        /** @type {Set<{params: object, resolve: () => void}>} */
+        this.propPostWaiters = new Set();
+        /** @type {Set<(list: Array<{id: number, name: string, cur: boolean}>) => void>} */
+        this.mapListWaiters = new Set();
+        this.snapshotRetries = 0;
+        this.cameraStream = new KaercherCameraStream();
+
         this.ephemeralState = {
             work_mode: undefined,
             status: undefined,
@@ -107,12 +117,13 @@ class KaercherRCV5ValetudoRobot extends ValetudoRobot {
                 onIncomingCloudMessage: (topic, envelope) => {
                     if (envelope?.method === "prop.post" && envelope.params) {
                         this.parseAndUpdateState(envelope.params);
+                        this.notifyPropPostWaiters(envelope.params);
                     } else if (topic.endsWith("/service/property/get_reply") && envelope?.code === 0 && envelope.data) {
                         // Reply to sendPropertyGet() — a different envelope shape entirely
                         // ({code, data}, not {method, params}), confirmed against
                         // karcher-home's own _process_mqtt_message()/_update_device_properties(),
                         // which dispatches purely by topic rather than by any method field.
-                        this.parseAndUpdateState(envelope.data);
+                        this.handlePropertySnapshot(envelope.data);
                     } else if (topic.endsWith("/service_invoke_reply/set_quiet_time")) {
                         // PoC diagnostic (KaercherDoNotDisturbCapability) — previously silently
                         // dropped, since nothing registered a reply_listener for this specific
@@ -130,6 +141,23 @@ class KaercherRCV5ValetudoRobot extends ValetudoRobot {
                             `KaercherRCV5ValetudoRobot: clean_record event: ${JSON.stringify(envelope)}`
                         );
                         this.capabilities[TotalStatisticsCapability.TYPE]?.handleCleanRecordEvent(envelope.params);
+                    } else if (topic.endsWith("/service_invoke_reply/get_map_list")) {
+                        Logger.info(
+                            `KaercherRCV5ValetudoRobot: get_map_list reply: ${JSON.stringify(envelope)}`
+                        );
+                        this.notifyMapListWaiters(envelope);
+                    } else if (topic.endsWith("/service_invoke_reply/set_cur_map")) {
+                        Logger.info(
+                            `KaercherRCV5ValetudoRobot: set_cur_map reply: ${JSON.stringify(envelope)}`
+                        );
+                    } else if (topic.endsWith("/service_invoke_reply/del_map")) {
+                        Logger.info(
+                            `KaercherRCV5ValetudoRobot: del_map reply: ${JSON.stringify(envelope)}`
+                        );
+                    } else if (topic.endsWith("/service_invoke_reply/rename_map")) {
+                        Logger.info(
+                            `KaercherRCV5ValetudoRobot: rename_map reply: ${JSON.stringify(envelope)}`
+                        );
                     } else if (topic.endsWith("/service_invoke_reply/build_map")) {
                         // Diagnostic (KaercherMappingPassCapability) — not live-tested yet, no
                         // known failure mode (map_num >= 5, already mapping, etc.) to react to
@@ -160,6 +188,10 @@ class KaercherRCV5ValetudoRobot extends ValetudoRobot {
         // charge_station_type push would silently 404 on every actual action
         // endpoint despite appearing to exist.
         this.knownHasAutoEmptyDock = knownIdentity.hasAutoEmptyDock;
+
+        // The camera feed is only reachable through the unauthenticated RTSP port while it runs,
+        // so it stays off until the user turns it on.
+        this.cameraEnabled = knownIdentity.cameraEnabled === true;
 
         /** @type {Array<new (options: {robot: KaercherRCV5ValetudoRobot}) => import("../../core/capabilities/Capability")>} */
         const capabilitiesToRegister = [
@@ -216,7 +248,8 @@ class KaercherRCV5ValetudoRobot extends ValetudoRobot {
             robot: this,
             quirks: [
                 quirkFactory.getQuirk(KaercherQuirkFactory.KNOWN_QUIRKS.CARPET_DISPLAY),
-                quirkFactory.getQuirk(KaercherQuirkFactory.KNOWN_QUIRKS.AUTO_UPGRADE)
+                quirkFactory.getQuirk(KaercherQuirkFactory.KNOWN_QUIRKS.AUTO_UPGRADE),
+                quirkFactory.getQuirk(KaercherQuirkFactory.KNOWN_QUIRKS.CAMERA)
             ]
         }));
 
@@ -226,6 +259,7 @@ class KaercherRCV5ValetudoRobot extends ValetudoRobot {
     }
 
     async shutdown() {
+        await this.cameraStream.shutdown();
         await super.shutdown();
 
         if (this.dummycloud) {
@@ -247,7 +281,7 @@ class KaercherRCV5ValetudoRobot extends ValetudoRobot {
      * silently failing until the next real login happened to occur.
      *
      * @protected
-     * @return {{sn?: string, mac?: string, hasAutoEmptyDock?: boolean}}
+     * @return {{sn?: string, mac?: string, hasAutoEmptyDock?: boolean, cameraEnabled?: boolean}}
      */
     readKnownIdentity() {
         try {
@@ -265,6 +299,18 @@ class KaercherRCV5ValetudoRobot extends ValetudoRobot {
      */
     persistIdentity(sn, mac) {
         this.persistDeviceState({sn: sn, mac: mac});
+    }
+
+    /**
+     * @param {boolean} enabled
+     */
+    async setCameraEnabled(enabled) {
+        this.cameraEnabled = enabled;
+        this.persistDeviceState({cameraEnabled: enabled});
+
+        if (!enabled) {
+            await this.cameraStream.shutdown();
+        }
     }
 
     /**
@@ -348,7 +394,208 @@ class KaercherRCV5ValetudoRobot extends ValetudoRobot {
      * @return {Promise<void>}
      */
     async sendPropertySet(params) {
-        return this.dummycloud.publishCommand("service/property/set", "prop.set", params, "1.0");
+        // The robot acknowledges a set before it has applied it: a prop.get sent right after
+        // still returns the old value, and the new value only arrives as a prop.post a few
+        // ms later (live capture 2026-09-30, privacy.carpet_turbo). publishCommand() resolves
+        // on publish, so without waiting for that echo every capability's read-after-write
+        // returns stale state and the WebUI needs a second press. Falls through on timeout
+        // for properties the robot never echoes.
+        const echoed = this.waitForPropPostEcho(params, KaercherRCV5ValetudoRobot.SET_ECHO_TIMEOUT_MS);
+
+        try {
+            await this.dummycloud.publishCommand("service/property/set", "prop.set", params, "1.0");
+        } catch (e) {
+            this.cancelPropPostWait(echoed);
+            throw e;
+        }
+
+        await echoed.promise;
+    }
+
+    /**
+     * Asks the robot for its saved maps. The reply shape is APK-derived
+     * (`{map_list: [{id, name, cur}]}`), not live-confirmed, so it may sit under `data` or `params`.
+     *
+     * @return {Promise<Array<{id: number, name: string, cur: boolean}>>}
+     */
+    async requestMapList() {
+        const reply = new Promise((resolve, reject) => {
+            const timer = setTimeout(() => {
+                this.mapListWaiters.delete(onReply);
+                reject(new Error("The robot did not answer the map list request in time"));
+            }, KaercherRCV5ValetudoRobot.MAP_LIST_TIMEOUT_MS);
+            const onReply = (list) => {
+                clearTimeout(timer);
+                resolve(list);
+            };
+
+            this.mapListWaiters.add(onReply);
+        });
+
+        try {
+            await this.sendServiceInvoke("get_map_list", {});
+        } catch (e) {
+            this.mapListWaiters.clear();
+            throw e;
+        }
+
+        return reply;
+    }
+
+    /**
+     * Two steps, like the app's MapCreateTipActivity: build_map arms it, and only its successful
+     * reply is followed by a whole-house set_room_clean, which is what makes the robot leave the dock.
+     * The robot acks build_map with result 0 but does nothing until the clean is sent
+     * (live 2026-09-30: build_map alone left the robot idle).
+     *
+     * @return {Promise<void>}
+     */
+    async startMapBuild() {
+        await this.sendServiceInvoke("build_map", {ctrl_value: 1});
+        await new Promise((resolve) => {
+            setTimeout(resolve, KaercherRCV5ValetudoRobot.MAP_CHANGE_SETTLE_MS);
+        });
+        await this.sendServiceInvoke("set_room_clean", {room_ids: [], ctrl_value: 1, clean_type: 0});
+    }
+
+    /**
+     * @param {number} id
+     * @param {string} name
+     * @return {Promise<Array<{id: number, name: string, cur: boolean}>>}
+     */
+    async renameMap(id, name) {
+        return this.changeMaps("rename_map", {map_id: id, map_name: name});
+    }
+
+    /**
+     * @param {number} id
+     * @return {Promise<Array<{id: number, name: string, cur: boolean}>>}
+     */
+    async selectMap(id) {
+        const maps = await this.changeMaps("set_cur_map", {map_id: id});
+
+        // The robot doesn't push the newly active map on its own (unconfirmed), so ask for it like on connect
+        this.sendServiceInvoke("upload_by_maptype", {map_type: 0}).catch(e => {
+            Logger.warn("KaercherRCV5ValetudoRobot: failed to request the map after switching", e);
+        });
+
+        return maps;
+    }
+
+    /**
+     * @param {number} id
+     * @return {Promise<Array<{id: number, name: string, cur: boolean}>>}
+     */
+    async deleteMap(id) {
+        return this.changeMaps("del_map", {map_id: id});
+    }
+
+    /**
+     * The robot acks before it applies a change, so the list is only requested after a short delay.
+     *
+     * @private
+     * @param {string} service
+     * @param {object} params
+     * @return {Promise<Array<{id: number, name: string, cur: boolean}>>}
+     */
+    async changeMaps(service, params) {
+        await this.sendServiceInvoke(service, params);
+        await new Promise((resolve) => {
+            setTimeout(resolve, KaercherRCV5ValetudoRobot.MAP_CHANGE_SETTLE_MS);
+        });
+
+        return this.requestMapList();
+    }
+
+    /**
+     * @param {any} envelope
+     */
+    notifyMapListWaiters(envelope) {
+        const rawList = (envelope?.data ?? envelope?.params)?.map_list;
+
+        if (!Array.isArray(rawList)) {
+            return;
+        }
+
+        const list = rawList.map((map) => {
+            return {id: Number(map.id), name: String(map.name ?? ""), cur: Boolean(map.cur)};
+        });
+
+        this.mapListWaiters.forEach((waiter) => {
+            waiter(list);
+        });
+        this.mapListWaiters.clear();
+    }
+
+    initModelSpecificWebserverRoutes(app) {
+        super.initModelSpecificWebserverRoutes(app);
+
+        app.use("/api/v2/karcher/maps/", new KaercherMapsRouter({robot: this}).getRouter());
+        app.use("/api/v2/karcher/camera/", new KaercherCameraRouter({
+            cameraStream: this.cameraStream,
+            isEnabled: () => {
+                return this.cameraEnabled;
+            }
+        }).getRouter());
+    }
+
+    /**
+     * @param {object} params properties as sent in a prop.set
+     * @param {number} timeoutMs
+     * @return {{promise: Promise<void>, waiter: {params: object, resolve: () => void}}}
+     */
+    waitForPropPostEcho(params, timeoutMs) {
+        let waiter;
+        const promise = new Promise((resolve) => {
+            const timer = setTimeout(() => {
+                this.propPostWaiters.delete(waiter);
+                Logger.debug(`KaercherRCV5ValetudoRobot: no prop.post echo for ${JSON.stringify(params)} within ${timeoutMs}ms`);
+                resolve();
+            }, timeoutMs);
+
+            waiter = {
+                params: params,
+                resolve: () => {
+                    clearTimeout(timer);
+                    resolve();
+                }
+            };
+            this.propPostWaiters.add(waiter);
+        });
+
+        return {promise: promise, waiter: waiter};
+    }
+
+    /**
+     * @param {{waiter: {params: object, resolve: () => void}}} echo
+     */
+    cancelPropPostWait(echo) {
+        this.propPostWaiters.delete(echo.waiter);
+        echo.waiter.resolve();
+    }
+
+    /**
+     * Resolves every pending set whose sent values are all present in this prop.post.
+     *
+     * @param {object} posted
+     */
+    notifyPropPostWaiters(posted) {
+        const isSubset = (sent, actual) => {
+            return Object.entries(sent).every(([key, value]) => {
+                if (typeof value === "object" && value !== null) {
+                    return typeof actual?.[key] === "object" && actual[key] !== null && isSubset(value, actual[key]);
+                }
+
+                return actual?.[key] === value;
+            });
+        };
+
+        this.propPostWaiters.forEach((waiter) => {
+            if (isSubset(waiter.params, posted)) {
+                this.propPostWaiters.delete(waiter);
+                waiter.resolve();
+            }
+        });
     }
 
     /**
@@ -367,11 +614,48 @@ class KaercherRCV5ValetudoRobot extends ValetudoRobot {
     }
 
     /**
+     * Straight after a boot the robot answers prop.get from a zeroed struct (live 2026-09-30:
+     * status -1, mode -21, water -11, quantity 0, map_num 0). Applying it shows 0% battery until the
+     * next push, which for quantity only comes when the level changes. status -1 marks that reply, so it
+     * is dropped and the request repeated until the robot has real values.
+     *
+     * @param {object} data
+     */
+    handlePropertySnapshot(data) {
+        if (data?.status !== -1) {
+            this.snapshotRetries = 0;
+            this.parseAndUpdateState(data);
+            return;
+        }
+
+        if (this.snapshotRetries >= KaercherRCV5ValetudoRobot.SNAPSHOT_MAX_RETRIES) {
+            Logger.warn("KaercherRCV5ValetudoRobot: the robot kept answering prop.get with placeholder values, giving up");
+            return;
+        }
+
+        this.snapshotRetries++;
+        Logger.debug(`KaercherRCV5ValetudoRobot: ignoring placeholder prop.get reply (retry ${this.snapshotRetries})`);
+        setTimeout(() => {
+            this.sendPropertyGet().catch(e => {
+                Logger.warn("KaercherRCV5ValetudoRobot: failed to repeat the property snapshot request", e);
+            });
+        }, KaercherRCV5ValetudoRobot.SNAPSHOT_RETRY_MS);
+    }
+
+    /**
      * @param {object} data flat property object from a prop.post push — may be partial
      */
     parseAndUpdateState(data) {
         if (typeof data !== "object" || data === null) {
             return;
+        }
+
+        // Diagnostic for KaercherMappingPassCapability: build_map is accepted but nothing visibly starts
+        const mappingKeys = ["build_map", "has_new_map", "new_map_notify", "map_num", "current_map_id", "status", "work_mode"];
+        const mappingFields = Object.fromEntries(mappingKeys.filter(key => data[key] !== undefined).map(key => [key, data[key]]));
+
+        if (data.build_map !== undefined || data.has_new_map !== undefined || data.new_map_notify !== undefined) {
+            Logger.info(`KaercherRCV5ValetudoRobot: mapping state: ${JSON.stringify(mappingFields)}`);
         }
 
         let statusRelevant = false;
@@ -499,6 +783,15 @@ class KaercherRCV5ValetudoRobot extends ValetudoRobot {
             }));
         }
 
+        if (data.tank_state !== undefined) {
+            this.upsertAttachment(stateAttrs.AttachmentStateAttribute.TYPE.WATERTANK, (data.tank_state & KaercherConst.TANK_STATE_WATERTANK_BIT) !== 0, data.tank_state);
+            this.upsertAttachment(stateAttrs.AttachmentStateAttribute.TYPE.DUSTBIN, (data.tank_state & KaercherConst.TANK_STATE_DUSTBIN_BIT) !== 0, data.tank_state);
+        }
+
+        if (data.cloth_state !== undefined) {
+            this.upsertAttachment(stateAttrs.AttachmentStateAttribute.TYPE.MOP, data.cloth_state === 1, data.cloth_state);
+        }
+
         if (data.charge_station_type !== undefined) {
             const hasStation = data.charge_station_type !== 0;
 
@@ -522,6 +815,19 @@ class KaercherRCV5ValetudoRobot extends ValetudoRobot {
         }
 
         this.emitStateAttributesUpdated();
+    }
+
+    /**
+     * @param {import("../../entities/state/attributes/AttachmentStateAttribute").AttachmentStateAttributeType} type
+     * @param {boolean} attached
+     * @param {number} rawValue
+     */
+    upsertAttachment(type, attached, rawValue) {
+        this.state.upsertFirstMatchingAttribute(new stateAttrs.AttachmentStateAttribute({
+            type: type,
+            attached: attached,
+            metaData: {rawValue: rawValue}
+        }));
     }
 
     /**
@@ -612,6 +918,20 @@ class KaercherRCV5ValetudoRobot extends ValetudoRobot {
         });
     }
 
+    getModelDetails() {
+        return Object.assign(
+            {},
+            super.getModelDetails(),
+            {
+                supportedAttachments: [
+                    stateAttrs.AttachmentStateAttribute.TYPE.DUSTBIN,
+                    stateAttrs.AttachmentStateAttribute.TYPE.WATERTANK,
+                    stateAttrs.AttachmentStateAttribute.TYPE.MOP,
+                ]
+            }
+        );
+    }
+
     getManufacturer() {
         return "Kärcher";
     }
@@ -682,5 +1002,12 @@ KaercherRCV5ValetudoRobot.IDENTITY_PATH = "/userdata/valetudo/device-identity.js
 // same way contrib/karcher-rcv5/dev/run_dummycloud.js already does for
 // KaercherAiotDummycloud directly.
 KaercherRCV5ValetudoRobot.BIND_IP = KaercherAiotDummycloud.BIND_IP;
+
+/** Upper bound on how long a prop.set waits for the robot's prop.post echo. */
+KaercherRCV5ValetudoRobot.SET_ECHO_TIMEOUT_MS = 1500;
+KaercherRCV5ValetudoRobot.MAP_LIST_TIMEOUT_MS = 5000;
+KaercherRCV5ValetudoRobot.SNAPSHOT_RETRY_MS = 5000;
+KaercherRCV5ValetudoRobot.SNAPSHOT_MAX_RETRIES = 12;
+KaercherRCV5ValetudoRobot.MAP_CHANGE_SETTLE_MS = 500;
 
 module.exports = KaercherRCV5ValetudoRobot;
