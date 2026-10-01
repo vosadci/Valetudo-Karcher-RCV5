@@ -248,6 +248,48 @@ Tested so far: macOS Safari. The stream is built to the constraints Safari's med
 needs, which is why parameter sets and delimiters are handled the way they are in
 `backend/lib/robots/karcher/camera/`. Chrome plays it too.
 
+## HTTPS for the web UI (opt-in)
+
+Off by default. When turned on, Valetudo serves the same UI over HTTPS on port 8443 while
+the plain HTTP server on port 80 keeps running (there is no redirect — browse to the HTTPS
+URL yourself). This encrypts the connection — most usefully Valetudo's basic-auth password —
+but the cert is self-signed, so the browser warns once and you click through. It gives you
+privacy, not a verified identity.
+
+Turn it on in the web UI under **Robot Options → Quirks → Web UI HTTPS** (`on`/`off`). No
+config editing and no restart: toggling it starts or stops the HTTPS server right away, and
+the choice is remembered across reboots (stored next to the device identity in
+`/userdata/valetudo/device-identity.json`). Then open `https://<ROBOT_IP>:8443/`.
+
+It stays on port 8443 on purpose: the dummycloud binds `127.0.13.38:443`, and on Linux a
+`0.0.0.0:443` web UI listener would fight it for the port.
+
+This is a Kärcher-only quirk — it lives entirely in the vendor module and the on-robot HTTPS
+server, so nothing under `frontend/` or core `backend/` changes and upstream syncs stay
+clean. SSDP/UPnP and Bonjour/mDNS still advertise plain HTTP (changing those would need core
+edits).
+
+How the cert works:
+
+- Generated on the robot the first time HTTPS is turned on (no `openssl` on the device
+  needed) and saved to `/userdata/valetudo/webui.{crt,key}`. Generating the RSA-2048 key
+  takes about **9 seconds** on the Cortex-A7 — it runs in the background, so the toggle
+  returns immediately and HTTPS comes up a few seconds later; later starts reuse the saved
+  cert instantly.
+- The SANs cover `localhost`, the `.local` name and the robot's IPs at generation time. If
+  DHCP later changes the robot's IP, the browser adds a name-mismatch warning on top of the
+  self-signed one — you can still proceed, or delete `webui.{crt,key}` and restart to
+  regenerate for the new IP. It does **not** regenerate for an IP change on its own.
+- Validity is 820 days, kept under Apple's 825-day cap so macOS/iOS accept it. Valetudo
+  renews it automatically at startup once it's within 30 days of expiry, and regenerates if
+  the files are missing or corrupt.
+- Because the cert's start date is "now minus a day", generation waits for the clock to be
+  set. If the robot boots with HTTPS on before its clock syncs, the log shows
+  `clock not set yet … delaying web UI HTTPS` and it retries every 30s.
+
+**This is not a substitute for the camera's port-554 exposure** (see above) or for any other
+open port — it only covers the web UI.
+
 ## Uninstalling
 
 From `contrib/karcher-rcv5/`:

@@ -1,10 +1,12 @@
 const assert = require("node:assert");
 const fs = require("node:fs");
+const https = require("node:https");
 const os = require("node:os");
 const path = require("node:path");
-const { afterEach, describe, it } = require("node:test");
+const { afterEach, beforeEach, describe, it } = require("node:test");
 
 const KaercherRCV5ValetudoRobot = require("../../../../lib/robots/karcher/KaercherRCV5ValetudoRobot");
+const KaercherWebUiCert = require("../../../../lib/robots/karcher/KaercherWebUiCert");
 
 // embedded: false skips dummycloud construction entirely (no TLS file reads, no port
 // binds) — the same mode util/generate_robot_docs.js uses to instantiate robot
@@ -466,6 +468,129 @@ describe("KaercherRCV5ValetudoRobot", () => {
 
             await assert.rejects(robot.sendPropertySet({wind: 2}), /no MQTT client connected/);
             assert.strictEqual(robot.propPostWaiters.size, 0);
+        });
+    });
+
+    describe("web UI HTTPS quirk", () => {
+        const originalCertPath = KaercherRCV5ValetudoRobot.WEBUI_CERT_PATH;
+        const originalKeyPath = KaercherRCV5ValetudoRobot.WEBUI_KEY_PATH;
+        const originalIdentityPath = KaercherRCV5ValetudoRobot.IDENTITY_PATH;
+        const originalPort = KaercherRCV5ValetudoRobot.WEBUI_HTTPS_PORT;
+        const originalClockFloor = KaercherWebUiCert.CLOCK_FLOOR;
+        const originalRetryMs = KaercherRCV5ValetudoRobot.WEBUI_HTTPS_CLOCK_RETRY_MS;
+        let tmpDir;
+        let robot;
+
+        beforeEach(() => {
+            tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "kaercher-webui-https-"));
+            KaercherRCV5ValetudoRobot.WEBUI_CERT_PATH = path.join(tmpDir, "webui.crt");
+            KaercherRCV5ValetudoRobot.WEBUI_KEY_PATH = path.join(tmpDir, "webui.key");
+            KaercherRCV5ValetudoRobot.IDENTITY_PATH = path.join(tmpDir, "device-identity.json");
+            KaercherRCV5ValetudoRobot.WEBUI_HTTPS_PORT = 0; // ephemeral, avoids clashing on 8443
+        });
+
+        afterEach(() => {
+            robot?.stopWebUiHttps();
+            robot = undefined;
+            KaercherRCV5ValetudoRobot.WEBUI_CERT_PATH = originalCertPath;
+            KaercherRCV5ValetudoRobot.WEBUI_KEY_PATH = originalKeyPath;
+            KaercherRCV5ValetudoRobot.IDENTITY_PATH = originalIdentityPath;
+            KaercherRCV5ValetudoRobot.WEBUI_HTTPS_PORT = originalPort;
+            KaercherRCV5ValetudoRobot.WEBUI_HTTPS_CLOCK_RETRY_MS = originalRetryMs;
+            KaercherWebUiCert.CLOCK_FLOOR = originalClockFloor;
+            fs.rmSync(tmpDir, {recursive: true, force: true});
+        });
+
+        async function waitForHttpsServer() {
+            while (!robot.webUiHttpsServer || robot.webUiHttpsServer.address() === null) {
+                await new Promise(resolve => {
+                    setTimeout(resolve, 10);
+                });
+            }
+        }
+
+        it("is registered as a quirk that reflects and flips httpsEnabled", async () => {
+            robot = buildRobot();
+            const quirksCapability = robot.capabilities["QuirksCapability"];
+            const quirk = quirksCapability.quirks.find(q => q.title === "Web UI HTTPS");
+
+            assert.ok(quirk, "a 'Web UI HTTPS' quirk must be registered");
+            assert.strictEqual(await quirk.getter(), "off");
+
+            robot.webserverApp = (req, res) => {
+                res.end("ok");
+            };
+            await quirk.setter("on");
+            await waitForHttpsServer();
+
+            assert.strictEqual(robot.httpsEnabled, true);
+            assert.strictEqual(await quirk.getter(), "on");
+        });
+
+        it("persists the flag and serves the app over HTTPS when turned on", async () => {
+            robot = buildRobot();
+            robot.webserverApp = (req, res) => {
+                res.end("ok");
+            };
+
+            await robot.setHttpsEnabled(true);
+            await waitForHttpsServer();
+
+            assert.strictEqual(
+                JSON.parse(fs.readFileSync(KaercherRCV5ValetudoRobot.IDENTITY_PATH, "utf8")).httpsEnabled,
+                true
+            );
+
+            const body = await new Promise((resolve, reject) => {
+                https.get({
+                    host: "127.0.0.1",
+                    port: robot.webUiHttpsServer.address().port,
+                    // Trusting the generated cert directly also proves its 127.0.0.1 SAN matches
+                    ca: fs.readFileSync(KaercherRCV5ValetudoRobot.WEBUI_CERT_PATH)
+                }, res => {
+                    let data = "";
+
+                    res.on("data", chunk => {
+                        data += chunk;
+                    });
+                    res.on("end", () => {
+                        resolve(data);
+                    });
+                }).on("error", reject);
+            });
+
+            assert.strictEqual(body, "ok");
+        });
+
+        it("stops the server and persists the flag when turned off", async () => {
+            robot = buildRobot();
+            robot.webserverApp = (req, res) => {
+                res.end("ok");
+            };
+
+            await robot.setHttpsEnabled(true);
+            await waitForHttpsServer();
+            await robot.setHttpsEnabled(false);
+
+            assert.strictEqual(robot.webUiHttpsServer, undefined);
+            assert.strictEqual(
+                JSON.parse(fs.readFileSync(KaercherRCV5ValetudoRobot.IDENTITY_PATH, "utf8")).httpsEnabled,
+                false
+            );
+        });
+
+        it("waits for a sane clock instead of generating a cert or a server", () => {
+            KaercherWebUiCert.CLOCK_FLOOR = new Date(Date.UTC(2999, 0, 1));
+            robot = buildRobot();
+            robot.webserverApp = (req, res) => {
+                res.end("ok");
+            };
+
+            robot.startWebUiHttps();
+
+            assert.strictEqual(robot.webUiHttpsServer, undefined);
+            assert.ok(robot.webUiCertClockTimeout);
+            assert.strictEqual(fs.existsSync(KaercherRCV5ValetudoRobot.WEBUI_CERT_PATH), false);
         });
     });
 });

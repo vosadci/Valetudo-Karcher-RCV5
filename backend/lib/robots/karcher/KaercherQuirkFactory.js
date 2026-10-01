@@ -136,6 +136,29 @@ class KaercherQuirkFactory {
                         await this.robot.setCameraEnabled(value === "on");
                     }
                 });
+            case KaercherQuirkFactory.KNOWN_QUIRKS.WEBUI_HTTPS:
+                return new Quirk({
+                    id: id,
+                    title: "Web UI HTTPS",
+                    // Serves the web UI over HTTPS on port 8443 as well as plain HTTP on 80,
+                    // which keeps the basic-auth password off the wire. The cert is
+                    // self-signed and generated on the robot, so the browser warns once.
+                    // The first time it's turned on, generating the key takes a few seconds.
+                    description: "Also serve the web UI over HTTPS on port 8443, so the login " +
+                        "password isn't sent in the clear. The certificate is self-signed, so " +
+                        "the browser will warn once before you continue.",
+                    options: ["on", "off"],
+                    getter: async () => {
+                        return this.robot.httpsEnabled ? "on" : "off";
+                    },
+                    setter: async (value) => {
+                        if (value !== "on" && value !== "off") {
+                            throw new Error(`Received invalid value ${value}`);
+                        }
+
+                        await this.robot.setHttpsEnabled(value === "on");
+                    }
+                });
             default:
                 throw new Error(`There's no quirk with id ${id}`);
         }
@@ -145,7 +168,8 @@ class KaercherQuirkFactory {
 KaercherQuirkFactory.KNOWN_QUIRKS = {
     CARPET_DISPLAY: "b3c9b8d9-2f7e-4b3b-8a2c-6e2b1e6f8a9e",
     AUTO_UPGRADE: "d1a4e9b2-6c3f-4a5d-9e7b-2f8c1d6a3b90",
-    CAMERA: "7a2f6c1e-3b84-4d59-a0e6-5c9d8b1f4e27"
+    CAMERA: "7a2f6c1e-3b84-4d59-a0e6-5c9d8b1f4e27",
+    WEBUI_HTTPS: "e8d3c7a1-9f4b-42e6-b1d8-3a7c5e2f9b60"
 };
 
 module.exports = KaercherQuirkFactory;
