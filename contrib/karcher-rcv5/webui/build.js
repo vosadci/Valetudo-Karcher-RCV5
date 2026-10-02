@@ -234,6 +234,40 @@ config.plugins.push(
     })
 );
 
+// Room labels are drawn like the Lovelace card's (map/CardSegmentLabelMapStructure.ts, a subclass that
+// overrides draw()). Scoped to StructureManager, the only place labels are created; other importers
+// only read the TYPE, which the subclass inherits.
+const structureManagerSource = fs.readFileSync(path.join(frontendDir, "src/map/StructureManager.ts"), "utf8");
+const segmentLabelSource = fs.readFileSync(path.join(frontendDir, "src/map/structures/map_structures/SegmentLabelMapStructure.ts"), "utf8");
+const segmentLabelContract = [
+    [structureManagerSource, "import SegmentLabelMapStructure from \"./structures/map_structures/SegmentLabelMapStructure\";"],
+    [structureManagerSource, "mapStructures.push(new SegmentLabelMapStructure("],
+    [segmentLabelSource, "topLabel: string | undefined;"],
+    [segmentLabelSource, "public name: string | undefined;"],
+    [segmentLabelSource, "draw(ctxWrapper: Canvas2DContextTrackingWrapper, transformationMatrixToScreenSpace: DOMMatrixInit, scaleFactor: number): void {"],
+    [segmentLabelSource, "onTap() {"],
+    // The area/id line repeats upstream's zoom threshold and wording
+    [segmentLabelSource, "if (scaleFactor >= considerHiDPI(11)) {"],
+    [segmentLabelSource, "let metaString = (this.area / 10000).toPrecision(2) + \" m²\";"],
+    [segmentLabelSource, "metaString += ` (id=${this.id})`;"],
+];
+const brokenSegmentLabelContract = segmentLabelContract.filter(([source, s]) => !source.includes(s)).map(([, s]) => s);
+
+if (brokenSegmentLabelContract.length > 0) {
+    throw new Error(
+        "karcher-ui: map/StructureManager.ts or SegmentLabelMapStructure.ts changed in a way map/CardSegmentLabelMapStructure.ts depends on. " +
+        `Missing: ${JSON.stringify(brokenSegmentLabelContract)}`
+    );
+}
+
+config.plugins.push(
+    new webpack.NormalModuleReplacementPlugin(/\/SegmentLabelMapStructure$/, (resource) => {
+        if ((resource.contextInfo?.issuer ?? "").endsWith(path.join("src", "map", "StructureManager.ts"))) {
+            resource.request = path.resolve(webuiSrc, "map/CardSegmentLabelMapStructure.ts");
+        }
+    })
+);
+
 config.plugins = config.plugins.filter(plugin => {
     return plugin.constructor.name !== "ForkTsCheckerWebpackPlugin" && plugin.constructor.name !== "ESLintPlugin";
 });
