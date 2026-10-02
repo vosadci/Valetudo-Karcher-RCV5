@@ -19,7 +19,7 @@ import {
 } from "@mui/icons-material";
 import ValetudoEvents from "components/ValetudoEvents";
 import {useSheetNavigation} from "./nav/SheetNavigationContext";
-import {RobotAttributeClass, StatusState, useRobotAttributeQuery, useRobotInformationQuery, useRobotStatusQuery, useValetudoCustomizationsQuery} from "api";
+import {RobotAttributeClass, StatusState, useRobotAttributeQuery, useRobotInformationQuery, useRobotMapQuery, useRobotStatusQuery, useValetudoCustomizationsQuery} from "api";
 
 // Status-dot colours mirror the card's .status-dot rules (styles-shell-a.js).
 const STATUS_COLOR: Partial<Record<StatusState["value"], string>> = {
@@ -82,6 +82,15 @@ const RobotHeader = (): React.ReactElement => {
         document.title = robotName;
     }, [robotName]);
 
+    // The room being cleaned, worked out by the backend (KaercherMapParser.CURRENT_SEGMENT_ID)
+    const {data: map} = useRobotMapQuery();
+    const currentSegmentId = (map?.metaData as {currentSegmentId?: string} | undefined)?.currentSegmentId;
+    const currentRoom = status?.value === "cleaning" && currentSegmentId !== undefined ?
+        map?.layers.find((layer) => {
+            return layer.metaData.segmentId === currentSegmentId;
+        })?.metaData.name :
+        undefined;
+
     const statusColor = status ? (STATUS_COLOR[status.value] ?? OFFLINE_COLOR) : OFFLINE_COLOR;
 
     return (
@@ -105,6 +114,7 @@ const RobotHeader = (): React.ReactElement => {
                     <Box sx={{width: 10, height: 10, borderRadius: "50%", backgroundColor: statusColor, flexShrink: 0}}/>
                     <Typography sx={{fontSize: 13, fontWeight: 600, color: statusColor}} noWrap>
                         {status ? STATUS_LABEL[status.value] ?? status.value : "Unknown"}
+                        {currentRoom ? ` · ${currentRoom}` : ""}
                         {/* Backend detail for the current state, e.g. "Self-checking" */}
                         {status?.message ? ` · ${status.message}` : ""}
                     </Typography>

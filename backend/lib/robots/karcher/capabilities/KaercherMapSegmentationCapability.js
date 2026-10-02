@@ -60,11 +60,14 @@ class KaercherMapSegmentationCapability extends MapSegmentationCapability {
             ])
         });
 
+        const roomIds = segments.map(segment => parseInt(segment.id, 10));
+
         await this.robot.sendServiceInvoke("set_room_clean", {
-            room_ids: segments.map(segment => parseInt(segment.id, 10)),
+            room_ids: roomIds,
             ctrl_value: 1,
             clean_type: 0
         });
+        this.robot.setActiveCleanSegments(roomIds);
     }
 
     /**

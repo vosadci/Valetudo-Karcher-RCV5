@@ -307,5 +307,70 @@ describe("KaercherMapParser", () => {
 
             assert.strictEqual(KaercherMapParser.BUILD_VALETUDO_MAP(robotMap), null);
         });
+
+        it("marks the room clean's rooms active and no others", () => {
+            const map = KaercherMapParser.BUILD_VALETUDO_MAP(buildRobotMap(), {activeSegmentIds: [10]});
+
+            assert.strictEqual(findLayer(map, "segment", 10).metaData.active, true);
+            assert.strictEqual(findLayer(map, "segment", 14).metaData.active, undefined);
+        });
+
+        it("adds currentSegmentId only while tracking the current room", () => {
+            const robotMap = withPath(buildRobotMap(), [[ROOM_10, 5, 1]]);
+
+            assert.strictEqual(KaercherMapParser.BUILD_VALETUDO_MAP(robotMap).metaData.currentSegmentId, undefined);
+            assert.strictEqual(
+                KaercherMapParser.BUILD_VALETUDO_MAP(robotMap, {trackCurrentRoom: true}).metaData.currentSegmentId,
+                "10"
+            );
+        });
+    });
+
+    describe("CURRENT_SEGMENT_ID", () => {
+        it("switches room only after 5 cleaning points in a row land in the new one", () => {
+            assert.strictEqual(
+                KaercherMapParser.CURRENT_SEGMENT_ID(withPath(buildRobotMap(), [[ROOM_10, 5, 1], [ROOM_15, 4, 1]]), []),
+                10
+            );
+            assert.strictEqual(
+                KaercherMapParser.CURRENT_SEGMENT_ID(withPath(buildRobotMap(), [[ROOM_10, 5, 1], [ROOM_15, 5, 1]]), []),
+                15
+            );
+        });
+
+        it("skips transit points and falls back to the robot's position", () => {
+            const robotMap = withPath(buildRobotMap(), [[ROOM_10, 5, 0]]);
+            robotMap.currentPose = {x: ROOM_14.x, y: ROOM_14.y, phi: 0};
+
+            assert.strictEqual(KaercherMapParser.CURRENT_SEGMENT_ID(robotMap, []), 14);
+        });
+
+        it("ignores rooms outside the room clean", () => {
+            const robotMap = withPath(buildRobotMap(), [[ROOM_10, 5, 1], [ROOM_15, 5, 1]]);
+            robotMap.currentPose = {x: ROOM_14.x, y: ROOM_14.y, phi: 0};
+
+            assert.strictEqual(KaercherMapParser.CURRENT_SEGMENT_ID(robotMap, [10]), 10);
+            assert.strictEqual(KaercherMapParser.CURRENT_SEGMENT_ID(withPath(buildRobotMap(), []), [15]), undefined);
+        });
     });
 });
+
+// Cell centres in world metres for buildRobotMap()'s grid
+const ROOM_10 = {x: 0.175, y: 0.025};
+const ROOM_14 = {x: 0.075, y: 0.075};
+const ROOM_15 = {x: 0.025, y: 0.075};
+
+/**
+ * @param {object} robotMap
+ * @param {Array<[{x: number, y: number}, number, number]>} runs [cell, point count, update flag]
+ * @return {object}
+ */
+function withPath(robotMap, runs) {
+    robotMap.historyPose.points = runs.flatMap(([cell, count, update]) => {
+        return Array.from({length: count}, () => {
+            return {x: cell.x, y: cell.y, update: update};
+        });
+    });
+
+    return robotMap;
+}

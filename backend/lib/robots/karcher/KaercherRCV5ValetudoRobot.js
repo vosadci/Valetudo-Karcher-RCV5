@@ -42,6 +42,14 @@ class KaercherRCV5ValetudoRobot extends ValetudoRobot {
         this.mapListWaiters = new Set();
         this.snapshotRetries = 0;
         this.cameraStream = new KaercherCameraStream();
+        // Rooms of the room clean Valetudo started, shown as `active` on the map. The robot
+        // never reports them itself, so they are lost when Valetudo restarts mid-clean.
+        /** @type {Array<number>} */
+        this.activeCleanSegmentIds = [];
+        // Last decoded map upload, kept so the map can be rebuilt when the cleaning state
+        // changes between uploads (the robot may stop uploading once it docks).
+        this.lastRobotMap = null;
+        this.lastStatusValue = undefined;
 
         this.ephemeralState = {
             work_mode: undefined,
@@ -375,11 +383,78 @@ class KaercherRCV5ValetudoRobot extends ValetudoRobot {
             mac: this.dummycloud.mac,
             productId: KaercherAiotDummycloud.PRODUCT_ID
         });
-        const map = parser.parse(body);
+        const robotMap = parser.decode(body);
+
+        if (robotMap) {
+            this.lastRobotMap = robotMap;
+            this.rebuildMap();
+        }
+    }
+
+    /**
+     * @private
+     */
+    rebuildMap() {
+        if (!this.lastRobotMap) {
+            return;
+        }
+
+        const map = KaercherMapParser.BUILD_VALETUDO_MAP(this.lastRobotMap, {
+            activeSegmentIds: this.activeCleanSegmentIds,
+            trackCurrentRoom: this.lastStatusValue === stateAttrs.StatusStateAttribute.VALUE.CLEANING
+        });
 
         if (map) {
             this.state.map = map;
             this.emitMapUpdated();
+        }
+    }
+
+    /**
+     * Called by the clean-starting capabilities: the rooms of a room clean, or [] for a
+     * whole-home or zone clean.
+     *
+     * @param {Array<number>} segmentIds
+     */
+    setActiveCleanSegments(segmentIds) {
+        const changed = segmentIds.length !== this.activeCleanSegmentIds.length ||
+            segmentIds.some(id => !this.activeCleanSegmentIds.includes(id));
+
+        this.activeCleanSegmentIds = segmentIds;
+
+        if (changed) {
+            this.rebuildMap();
+        }
+    }
+
+    /**
+     * Ends the room clean's `active` marks when a clean finishes, and drops the current
+     * room once the robot stops cleaning. Only a change out of a running state counts:
+     * the robot can still report docked once or twice after set_room_clean, and that
+     * must not clear the rooms that were just set.
+     *
+     * @private
+     * @param {string} statusValue
+     */
+    handleCleanStateChange(statusValue) {
+        const previous = this.lastStatusValue;
+        const VALUE = stateAttrs.StatusStateAttribute.VALUE;
+
+        if (statusValue === previous) {
+            return;
+        }
+        this.lastStatusValue = statusValue;
+
+        const wasRunning = [VALUE.CLEANING, VALUE.PAUSED, VALUE.RETURNING, VALUE.MOVING].includes(previous);
+        const isFinished = [VALUE.IDLE, VALUE.DOCKED].includes(statusValue);
+
+        if (wasRunning && isFinished && this.activeCleanSegmentIds.length > 0) {
+            this.activeCleanSegmentIds = [];
+            this.rebuildMap();
+        } else if (previous === VALUE.CLEANING) {
+            // No rebuild when cleaning starts: the cached upload's path may still be the
+            // previous clean's, so the current room waits for the next upload.
+            this.rebuildMap();
         }
     }
 
@@ -763,6 +838,10 @@ class KaercherRCV5ValetudoRobot extends ValetudoRobot {
                 statusRelevant = true;
             }
         }
+        if (data.current_map_id !== undefined && data.current_map_id !== this.ephemeralState.current_map_id) {
+            // Room ids belong to one map
+            this.setActiveCleanSegments([]);
+        }
         for (const key of ["main_brush", "side_brush", "hypa", "mop_life", "current_map_id", "cleaning_time", "cleaning_area", "volume", "firmware", "firmware_code"]) {
             if (data[key] !== undefined) {
                 this.ephemeralState[key] = data[key];
@@ -997,6 +1076,8 @@ class KaercherRCV5ValetudoRobot extends ValetudoRobot {
             error: faultCode !== undefined ? this.buildRobotError(faultCode) : undefined,
             message: statusMessage
         }));
+
+        this.handleCleanStateChange(value);
     }
 
     /**

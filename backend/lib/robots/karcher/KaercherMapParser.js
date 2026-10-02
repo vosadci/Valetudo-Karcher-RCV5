@@ -51,6 +51,19 @@ class KaercherMapParser {
      * @return {import("../../entities/map/ValetudoMap")|null}
      */
     parse(rawUploadBody) {
+        const robotMap = this.decode(rawUploadBody);
+
+        return robotMap ? KaercherMapParser.BUILD_VALETUDO_MAP(robotMap) : null;
+    }
+
+    /**
+     * Decrypts and decodes an upload without building the Valetudo map, so the robot can
+     * keep it and rebuild the map when the cleaning state changes between uploads.
+     *
+     * @param {Buffer} rawUploadBody
+     * @return {object|null} decoded RobotMap protobuf message
+     */
+    decode(rawUploadBody) {
         let robotMap;
         try {
             // The PUT body is assumed to be base64 text, not raw binary — inferred from
@@ -76,14 +89,25 @@ class KaercherMapParser {
             return null;
         }
 
-        return KaercherMapParser.BUILD_VALETUDO_MAP(robotMap);
+        return robotMap;
     }
 
     /**
+     * The robot's map data never says which rooms a clean covers or which room it is in
+     * (RoomDataInfo cleanState stays 0, live 2026-10-02), so the robot class passes both in:
+     * - activeSegmentIds: the rooms of the room clean Valetudo started. Marked `active`,
+     *   which upstream means "part of the current cleanup" (Roborock, Dreame).
+     * - trackCurrentRoom: set while cleaning. Adds metaData.currentSegmentId, the room the
+     *   robot is cleaning right now, see CURRENT_SEGMENT_ID.
+     *
      * @param {object} robotMap decoded RobotMap protobuf message
+     * @param {object} [cleanState]
+     * @param {Array<number>} [cleanState.activeSegmentIds]
+     * @param {boolean} [cleanState.trackCurrentRoom]
      * @return {import("../../entities/map/ValetudoMap")|null}
      */
-    static BUILD_VALETUDO_MAP(robotMap) {
+    static BUILD_VALETUDO_MAP(robotMap, cleanState = {}) {
+        const activeSegmentIds = cleanState.activeSegmentIds ?? [];
         const head = robotMap.mapHead;
         const width = head.sizeX;
         const height = head.sizeY;
@@ -183,6 +207,9 @@ class KaercherMapParser {
             const material = KaercherMapParser.MATERIAL_ID_TO_VALETUDO[room?.meterialId];
             if (material !== undefined) {
                 metaData.material = material;
+            }
+            if (activeSegmentIds.includes(segmentId)) {
+                metaData.active = true;
             }
 
             layers.push(new mapEntities.MapLayer({
@@ -339,15 +366,25 @@ class KaercherMapParser {
             }));
         });
 
+        const mapMetaData = {
+            vendorMapId: head.mapHeadId,
+            // Cached so a later zone-cleaning command can invert
+            // WORLD_TO_VALETUDO_PIXELS back to the robot's native world-metre
+            // coordinates for the map currently on screen — head/resolution are
+            // per-upload and don't survive past this function otherwise.
+            worldOrigin: {minX: head.minX, minY: head.minY, sizeY: head.sizeY, resolution: resolution}
+        };
+
+        if (cleanState.trackCurrentRoom) {
+            const currentSegmentId = KaercherMapParser.CURRENT_SEGMENT_ID(robotMap, activeSegmentIds);
+
+            if (currentSegmentId !== undefined) {
+                mapMetaData.currentSegmentId = String(currentSegmentId);
+            }
+        }
+
         return new mapEntities.ValetudoMap({
-            metaData: {
-                vendorMapId: head.mapHeadId,
-                // Cached so a later zone-cleaning command can invert
-                // WORLD_TO_VALETUDO_PIXELS back to the robot's native world-metre
-                // coordinates for the map currently on screen — head/resolution are
-                // per-upload and don't survive past this function otherwise.
-                worldOrigin: {minX: head.minX, minY: head.minY, sizeY: head.sizeY, resolution: resolution}
-            },
+            metaData: mapMetaData,
             size: {
                 x: width * KaercherMapParser.PIXEL_SIZE,
                 y: height * KaercherMapParser.PIXEL_SIZE
@@ -419,6 +456,88 @@ class KaercherMapParser {
     }
 
     /**
+     * The room the robot is cleaning, as the karcher-rcv5-ha integration works it out
+     * (coordinator._track_room_transition): replay the cleaning path, skip points flagged
+     * as transit (update 0, doc/PROTOCOL.md §13.1), and switch room only after
+     * CURRENT_ROOM_HYSTERESIS points in a row land in the new one, so brief trips through
+     * a doorway don't count. Rooms outside the current room clean are ignored. Falls back
+     * to the robot's own position when the path gives no room yet.
+     *
+     * @param {object} robotMap decoded RobotMap protobuf message
+     * @param {Array<number>} allowedSegmentIds empty = any room
+     * @return {number|undefined}
+     */
+    static CURRENT_SEGMENT_ID(robotMap, allowedSegmentIds) {
+        const head = robotMap.mapHead;
+        const gridBytes = robotMap.mapData.mapData;
+        // Grid row 0 is world minY, so no image flip here (same lookup as the integration's
+        // map_render.room_id_for_world_point)
+        const segmentAt = (x, y) => {
+            const col = Math.floor((x - head.minX) / head.resolution);
+            const row = Math.floor((y - head.minY) / head.resolution);
+
+            if (col < 0 || row < 0 || col >= head.sizeX || row >= head.sizeY) {
+                return undefined;
+            }
+
+            const cell = KaercherMapParser.DECODE_CELL(gridBytes[(row * head.sizeX) + col]);
+
+            if (cell.kind !== "segment") {
+                return undefined;
+            }
+            if (allowedSegmentIds.length > 0 && !allowedSegmentIds.includes(cell.segmentId)) {
+                return undefined;
+            }
+
+            return cell.segmentId;
+        };
+
+        const points = robotMap.historyPose?.points ?? [];
+        let current;
+        let candidate;
+        let candidateCount = 0;
+        let cleaningPoints = 0;
+
+        points.forEach((point) => {
+            if (!point.update) {
+                return;
+            }
+            cleaningPoints++;
+
+            const segmentId = segmentAt(point.x, point.y);
+
+            if (segmentId === undefined) {
+                return;
+            }
+
+            if (segmentId === current) {
+                candidate = undefined;
+                candidateCount = 0;
+            } else if (segmentId === candidate) {
+                candidateCount++;
+
+                if (candidateCount >= KaercherMapParser.CURRENT_ROOM_HYSTERESIS) {
+                    current = segmentId;
+                    candidate = undefined;
+                    candidateCount = 0;
+                }
+            } else {
+                candidate = segmentId;
+                candidateCount = 1;
+            }
+        });
+
+        // Not yet confirmed live that historyPose's `update` carries the same cleaning flag as cur_path's
+        Logger.debug(`KaercherMapParser: path has ${cleaningPoints} cleaning and ${points.length - cleaningPoints} transit points`);
+
+        if (current === undefined && robotMap.currentPose) {
+            current = segmentAt(robotMap.currentPose.x, robotMap.currentPose.y);
+        }
+
+        return current;
+    }
+
+    /**
      * World metres (doc/MAP_DATA.md §5: origin bottom-left, Y up) to Valetudo pixel
      * coordinates (origin top-left, Y down, units of PIXEL_SIZE cm).
      *
@@ -480,6 +599,8 @@ class KaercherMapParser {
 }
 
 KaercherMapParser.PIXEL_SIZE = 5; // cm; matches the RCV5's 0.05m/cell grid resolution
+// Same value as the karcher-rcv5-ha integration's _ROOM_CHANGE_HYSTERESIS
+KaercherMapParser.CURRENT_ROOM_HYSTERESIS = 5;
 
 // RoomDataInfo.meterialId -> Valetudo MapLayer.MATERIAL. See the comment at its use site
 // above. 0/absent (unset/unknown) is deliberately not a key here.
