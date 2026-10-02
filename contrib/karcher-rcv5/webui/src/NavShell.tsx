@@ -7,6 +7,7 @@ import CleaningOptions from "./CleaningOptions";
 import NavSheet from "./nav/NavSheet";
 import {SheetNavigationProvider} from "./nav/SheetNavigationContext";
 import {PAGE_REGISTRY} from "./nav/PageRegistry";
+import CameraOverlay from "./map/CameraOverlay";
 
 // The side panel needs ~440px for the Mode and Suction rows' labels; the map needs room for its Rooms | Zone
 // pill and Reset button. Below both together, switch to the phone layout instead of squeezing either.
@@ -20,6 +21,7 @@ const NavShell = (props: {
     const [sheetOpen, setSheetOpen] = React.useState(false);
     const [sectionKey, setSectionKey] = React.useState<string | null>(null);
     const [pageKey, setPageKey] = React.useState<string | null>(null);
+    const [cameraOpen, setCameraOpen] = React.useState(false);
     const mobileView = !useMediaQuery(`(min-width: ${PANEL_MIN_WIDTH + MAP_MIN_WIDTH}px)`, {noSsr: true});
 
     const navigation = React.useMemo(() => {
@@ -45,9 +47,11 @@ const NavShell = (props: {
                 <RobotHeader/>
                 {/* Same split as Valetudo's HomePage: narrow windows get the controls under the map, wide ones a side panel */}
                 <div style={{flex: 1, minHeight: 0, display: "flex"}}>
-                    <div style={{flex: 1, minWidth: mobileView ? 0 : MAP_MIN_WIDTH}}>
-                        {/* Unmounted while the sheet is open so only one live map/WebSocket component runs at a time */}
+                    <div style={{flex: 1, minWidth: mobileView ? 0 : MAP_MIN_WIDTH, position: "relative", containerType: "size"}}>
+                        {/* Unmounted while the sheet is open so only one live map/WebSocket component runs at a time.
+                            The camera goes with it, so its stream stops too; it comes back when the sheet closes. */}
                         {!sheetOpen && <LiveMapPage/>}
+                        {!sheetOpen && <CameraOverlay open={cameraOpen} setOpen={setCameraOpen}/>}
                     </div>
                     {!mobileView && (
                         <Box
