@@ -210,6 +210,12 @@ const resetZoomContract = [
     [baseMapSource, "protected ctxWrapper!: Canvas2DContextTrackingWrapper;"],
     [baseMapSource, "protected currentScaleFactor = 1;"],
     [baseMapSource, "protected draw() : void {"],
+    [baseMapSource, "protected canvas!: HTMLCanvasElement;"],
+    [baseMapSource, "protected readonly resizeListener: () => void;"],
+    [baseMapSource, "componentWillUnmount(): void {"],
+    // ResettableLiveMap.fitTransform repeats this fit for new canvas sizes
+    [baseMapSource, "this.canvas.width / ((boundingBox.maxX - boundingBox.minX)*1.1),"],
+    [baseMapSource, "const initialxOffset = (this.canvas.width - (boundingBox.maxX - boundingBox.minX)*initialScalingFactor) / 2;"],
 ];
 const brokenResetZoomContract = resetZoomContract.filter(([source, s]) => !source.includes(s)).map(([, s]) => s);
 

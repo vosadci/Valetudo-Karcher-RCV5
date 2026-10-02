@@ -5,14 +5,84 @@ import LiveMap from "map/LiveMap";
 
 // Replaces LiveMap for LiveMapPage only (see build.js). Adds the card's "Reset" button, shown while
 // the map is zoomed or panned. Valetudo fits the map once on mount; that view is saved and restored,
-// so mode, room selection and zone stay as they are.
+// so mode, room selection and zone stay as they are. When the map's size changes, the fit is redone
+// for the new size; a zoomed map keeps its view and Reset goes to the new fit.
 class ResettableLiveMap extends LiveMap {
     private defaultTransform: DOMMatrix | null = null;
     private zoomed = false;
+    private resizeObserver: ResizeObserver | null = null;
+    private lastSize = "";
 
     componentDidMount(): void {
         super.componentDidMount();
         this.defaultTransform = this.ctxWrapper.getTransform();
+        this.lastSize = `${this.canvas.clientWidth}x${this.canvas.clientHeight}`;
+
+        // Watches the canvas, not the window, so layout changes like the side panel appearing count too
+        this.resizeObserver = new ResizeObserver(() => {
+            this.onCanvasResize();
+        });
+        this.resizeObserver.observe(this.canvas);
+    }
+
+    componentWillUnmount(): void {
+        this.resizeObserver?.disconnect();
+        super.componentWillUnmount();
+    }
+
+    private onCanvasResize(): void {
+        const size = `${this.canvas.clientWidth}x${this.canvas.clientHeight}`;
+
+        if (size === this.lastSize || this.canvas.clientWidth === 0 || this.canvas.clientHeight === 0) {
+            return;
+        }
+
+        this.lastSize = size;
+        // Valetudo's own handler: resizes the canvas buffer and keeps the current view
+        this.resizeListener();
+
+        const fit = this.fitTransform();
+
+        if (fit === null) {
+            return;
+        }
+
+        this.defaultTransform = fit;
+
+        if (!this.zoomed) {
+            this.resetZoom();
+        } else {
+            this.updateZoomed();
+        }
+    }
+
+    // Same fit as BaseMap.componentDidMount: the layers' bounding box plus 10%, centred
+    private fitTransform(): DOMMatrix | null {
+        const layers = this.props.rawMap.layers;
+
+        if (layers.length === 0) {
+            return null;
+        }
+
+        const minX = Math.min(...layers.map((l) => {
+            return l.dimensions.x.min;
+        }));
+        const minY = Math.min(...layers.map((l) => {
+            return l.dimensions.y.min;
+        }));
+        const width = Math.max(...layers.map((l) => {
+            return l.dimensions.x.max;
+        })) - minX;
+        const height = Math.max(...layers.map((l) => {
+            return l.dimensions.y.max;
+        })) - minY;
+        const scale = Math.min(this.canvas.width / (width * 1.1), this.canvas.height / (height * 1.1));
+
+        return new DOMMatrix([
+            scale, 0, 0, scale,
+            (this.canvas.width - width * scale) / 2 - minX * scale,
+            (this.canvas.height - height * scale) / 2 - minY * scale,
+        ]);
     }
 
     protected draw(): void {
