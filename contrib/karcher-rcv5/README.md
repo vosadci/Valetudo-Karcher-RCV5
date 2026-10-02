@@ -269,7 +269,9 @@ was written against, `activate.sh` aborts here rather than activating with
 that window silently left open.
 
 **3. Verify.** Open `http://<robot-ip>` (or whatever the robot's IP is)
-in a browser — you should see the map and controls. If you don't, see
+in a browser — you should see the map and controls. This is Valetudo's own
+UI; the Kärcher UI is also available at `http://<robot-ip>/karcher-ui/` (see
+"Two web UIs are available" below). If you don't see anything, see
 Troubleshooting below.
 
 **4. Confirm it survives a reboot.** Reboot the robot (from its own button,
@@ -302,6 +304,18 @@ values there; a robot provisioned through `provision-wifi.py` ends up with
 whatever that script wrote. Either way, the redirect matches what's
 actually on disk — this only falls back to hardcoded EU values (with a
 printed warning) if `wifi.conf` is somehow missing or unreadable.
+
+## Two web UIs are available
+
+Once in valetudo mode the robot serves **both** UIs at the same time, and you can use
+whichever you prefer:
+
+- **Valetudo's own UI** — `http://<ROBOT_IP>/` (the default; this is what the Verify step
+  above opens). Always present and untouched, so it's the fallback if anything about the
+  Kärcher UI misbehaves.
+- **The Kärcher UI** — `http://<ROBOT_IP>/karcher-ui/` (see below).
+
+Neither replaces the other; they share the same backend on the robot.
 
 ## The Kärcher UI (`/karcher-ui/`)
 
