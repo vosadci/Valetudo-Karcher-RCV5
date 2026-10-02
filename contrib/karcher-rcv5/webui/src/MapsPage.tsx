@@ -1,6 +1,7 @@
 import React from "react";
 import {
     Alert,
+    Avatar,
     Box,
     Button,
     Chip,
@@ -10,15 +11,22 @@ import {
     DialogContent,
     DialogTitle,
     IconButton,
-    List,
     ListItem,
+    ListItemAvatar,
     ListItemText,
     TextField
 } from "@mui/material";
-import {CheckCircleOutline as SelectIcon, DeleteOutline as DeleteIcon, Edit as EditIcon} from "@mui/icons-material";
+import {
+    CheckCircleOutline as SelectIcon,
+    DeleteOutline as DeleteIcon,
+    Edit as EditIcon,
+    Map as MapIcon
+} from "@mui/icons-material";
 import {useMutation, useQuery, useQueryClient} from "@tanstack/react-query";
 import {useSnackbar} from "notistack";
 import {valetudoAPI} from "api";
+import PaperContainer from "components/PaperContainer";
+import {ListMenu} from "components/list_menu/ListMenu";
 
 interface SavedMap {
     id: number,
@@ -102,52 +110,63 @@ const MapsPage = (): React.ReactElement => {
 
     return (
         <>
-            <List sx={{padding: 1.5}}>
-                {data.map((map) => {
-                    return (
-                        <ListItem
-                            key={map.id}
-                            secondaryAction={
-                                <>
-                                    {map.cur && <Chip size="small" color="primary" label="Current" sx={{marginRight: 1}}/>}
-                                    {!map.cur && (
+            <PaperContainer>
+                <ListMenu
+                    primaryHeader="Saved maps"
+                    secondaryHeader="Maps stored on the robot. It cleans with the current one."
+                    listItems={data.map((map) => {
+                        return (
+                            <ListItem
+                                key={map.id}
+                                // Room for up to three action buttons, so long names wrap instead of running under them
+                                sx={{paddingRight: "136px"}}
+                                secondaryAction={
+                                    <>
+                                        {map.cur && <Chip size="small" color="primary" label="Current" sx={{marginRight: 1}}/>}
+                                        {!map.cur && (
+                                            <IconButton
+                                                aria-label="Use this map"
+                                                disabled={selectMutation.isPending}
+                                                onClick={() => {
+                                                    selectMutation.mutate(map.id);
+                                                }}
+                                            >
+                                                <SelectIcon/>
+                                            </IconButton>
+                                        )}
                                         <IconButton
-                                            aria-label="Use this map"
-                                            disabled={selectMutation.isPending}
+                                            aria-label="Rename"
                                             onClick={() => {
-                                                selectMutation.mutate(map.id);
+                                                setNewName(map.name);
+                                                setRenaming(map);
                                             }}
                                         >
-                                            <SelectIcon/>
+                                            <EditIcon/>
                                         </IconButton>
-                                    )}
-                                    <IconButton
-                                        aria-label="Rename"
-                                        onClick={() => {
-                                            setNewName(map.name);
-                                            setRenaming(map);
-                                        }}
-                                    >
-                                        <EditIcon/>
-                                    </IconButton>
-                                    {!map.cur && (
-                                        <IconButton
-                                            aria-label="Delete"
-                                            onClick={() => {
-                                                setDeleting(map);
-                                            }}
-                                        >
-                                            <DeleteIcon/>
-                                        </IconButton>
-                                    )}
-                                </>
-                            }
-                        >
-                            <ListItemText primary={map.name || `Map ${map.id}`} secondary={`ID ${map.id}`}/>
-                        </ListItem>
-                    );
-                })}
-            </List>
+                                        {!map.cur && (
+                                            <IconButton
+                                                aria-label="Delete"
+                                                onClick={() => {
+                                                    setDeleting(map);
+                                                }}
+                                            >
+                                                <DeleteIcon/>
+                                            </IconButton>
+                                        )}
+                                    </>
+                                }
+                            >
+                                <ListItemAvatar>
+                                    <Avatar>
+                                        <MapIcon/>
+                                    </Avatar>
+                                </ListItemAvatar>
+                                <ListItemText primary={map.name || `Map ${map.id}`} secondary={`ID ${map.id}`}/>
+                            </ListItem>
+                        );
+                    })}
+                />
+            </PaperContainer>
             <Dialog open={renaming !== null} onClose={() => {
                 setRenaming(null);
             }} fullWidth maxWidth="xs">

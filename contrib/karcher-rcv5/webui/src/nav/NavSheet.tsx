@@ -5,6 +5,7 @@ import {
     IconButton,
     List,
     ListItemButton,
+    ListItemIcon,
     ListItemText,
     PaletteMode,
     Typography
@@ -14,8 +15,11 @@ import {
     ArrowForwardIos as ArrowIcon,
     Close as CloseIcon
 } from "@mui/icons-material";
+import PaperContainer from "components/PaperContainer";
+import {ListMenu} from "components/list_menu/ListMenu";
 import {PAGE_REGISTRY, SECTIONS} from "./PageRegistry";
 import {useNavVisibility} from "./useNavVisibility";
+import {LinkListMenuItem} from "./LinkListMenuItem";
 import MenuFooter from "./MenuFooter";
 
 interface NavSheetProps {
@@ -52,30 +56,49 @@ const NavSheet = (props: NavSheetProps): React.ReactElement => {
         title = section.title;
         body = <Hub/>;
     } else if (section !== undefined) {
+        // Built from the same pieces as Valetudo's hub pages (e.g. ConnectivityOptions), so it looks the same
         title = section.title;
         body = (
-            <List>
-                {section.pageKeys.filter(isPageVisible).map((key) => {
-                    return (
-                        <ListItemButton key={key} onClick={() => {
-                            onSelectPage(key);
-                        }}>
-                            <ListItemText primary={PAGE_REGISTRY[key].title}/>
-                            <ArrowIcon fontSize="small"/>
-                        </ListItemButton>
-                    );
-                })}
-            </List>
+            <PaperContainer>
+                <ListMenu
+                    primaryHeader={section.title}
+                    secondaryHeader={section.description ?? ""}
+                    listItems={section.pageKeys.filter(isPageVisible).map((key) => {
+                        const def = PAGE_REGISTRY[key];
+                        const Icon = def.icon ?? ArrowIcon;
+
+                        return (
+                            <LinkListMenuItem
+                                key={key}
+                                url={key}
+                                primaryLabel={def.title}
+                                secondaryLabel={def.description ?? ""}
+                                icon={<Icon/>}
+                            />
+                        );
+                    })}
+                />
+            </PaperContainer>
         );
     } else {
+        // Laid out like the entries in Valetudo's own drawer (ValetudoAppBar.tsx)
         body = (
             <>
-            <List>
+            <List sx={{userSelect: "none"}}>
                 {Object.entries(SECTIONS).filter(([key]) => isSectionVisible(key)).map(([key, def]) => {
+                    const Icon = def.icon;
+
                     return (
                         <ListItemButton key={key} onClick={() => {
-                            onSelectSection(key);
+                            if (def.page !== undefined) {
+                                onSelectPage(def.page);
+                            } else {
+                                onSelectSection(key);
+                            }
                         }}>
+                            <ListItemIcon>
+                                <Icon/>
+                            </ListItemIcon>
                             <ListItemText primary={def.title}/>
                             <ArrowIcon fontSize="small"/>
                         </ListItemButton>
