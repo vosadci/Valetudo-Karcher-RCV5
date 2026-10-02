@@ -445,8 +445,7 @@ would actually free enough.
   Kärcher app, which offers a firmware update as part of that flow. This is
   the vendor's own path. This project has not tested a firmware update
   through it. Pairing itself does **not** need the app — see "Recovering
-  from a WiFi/config reset" below. The script's own closing text still calls
-  this path "safe, confirmed". That wording is stale.
+  from a WiFi/config reset" below.
 - **(b) On hold, not tested** — see the next section.
 
 ### Local OTA trigger (on hold, not tested)
