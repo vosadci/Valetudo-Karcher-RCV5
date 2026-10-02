@@ -11,15 +11,17 @@ Protocol facts are sourced from the `karcher-rcv5-ha` repo's
 device). Citations below are file + section, not line numbers, since that
 repo evolves independently of this one.
 
-**Last updated:** 2026-09-22 (`CarpetModeControlCapability`, `CarpetSensorModeControlCapability`,
-`ObstacleAvoidanceControlCapability`, and a `QuirksCapability` carpet-display quirk implemented —
-all four reuse existing core capability types rather than needing new Valetudo taxonomy; built
-and unit-tested, **not yet live-tested**. Before that: `CombinedVirtualRestrictionsCapability`
-write side implemented — add/edit/delete of walls, no-go, and no-mop zones from Valetudo's own
-map editor, live-confirmed on-device. `SpeakerVolumeControlCapability` + `SpeakerTestCapability`
-implemented and live-confirmed. `MapSegmentEditCapability` (merge/split) and
-`MapSegmentRenameCapability` both implemented and live-confirmed, including a device-level split
-limitation reproduced in the official app)
+**Last updated:** 2026-10-02. Since the 2026-09-22 capability burst
+(`CarpetModeControlCapability`, `CarpetSensorModeControlCapability`,
+`ObstacleAvoidanceControlCapability`, carpet-display quirk; the virtual-restrictions write side;
+speaker control; segment edit/rename — all live-confirmed except the three carpet/AI toggles,
+which are built but not yet live-tested): `LocateCapability` and `DoNotDisturbCapability` (PoC)
+registered; `MappingPassCapability` live-confirmed 2026-09-30; the `QuirksCapability` now carries
+**four** quirks (Carpet Display, Automatic Firmware Updates, Camera, Web UI HTTPS); and two
+features with no matching Valetudo capability shipped as **custom Express routes + karcher-ui
+pages** rather than core taxonomy — saved-map management (`/api/v2/karcher/maps/`, live-confirmed
+2026-09-30) and camera streaming (`/api/v2/karcher/camera/`, opt-in Camera quirk, committed
+`12cf91ed`). The whole line is now merged to `origin/master`.
 
 ## Legend
 
@@ -47,7 +49,8 @@ limitation reproduced in the official app)
 `KaercherCarpetModeControlCapability`, `KaercherCarpetSensorModeControlCapability`,
 `KaercherObstacleAvoidanceControlCapability`, `KaercherLocateCapability`,
 `KaercherDoNotDisturbCapability` — plus a bare core `QuirksCapability`
-(no Kärcher-specific subclass needed) fed one quirk from `KaercherQuirkFactory.js`.
+(no Kärcher-specific subclass needed) fed four quirks from `KaercherQuirkFactory.js`
+(Carpet Display, Automatic Firmware Updates, Camera, Web UI HTTPS).
 Embedded-only (need the robot's own Linux, gated on `config.embedded`):
 `KaercherWifiConfigurationCapability`, `LinuxWifiScanCapability`, plus the button-triggered
 open-AP WiFi management controller (not itself a capability — see the main `README.md`).
@@ -67,7 +70,7 @@ Most rows here are **not yet live-tested** — see the per-row notes below for w
 | `GoToLocationCapability` | 🟨 | `set_point_clean`/`start_point_clean` in the APK command table, payload never captured. Ambiguous vs. "clean a spot" below — needs one live capture to settle whether that app feature is this or a small `ZoneCleaningCapability` rectangle |
 | `ManualControlCapability` | 🔶 | **Corrected 2026-09-20** — previously marked ❌ on the strength of `set_direction` being tagged "RCV2 only" in the APK command table. That's superseded by RobotApp disassembly (`CAiotParseBuf::parseSetRemoteCtrlReq`, `SetRemoteControl` cloud op): `direction`/`ctrlValue` are parsed straight into the motion layer, independent of that APK string. Matches the app's own four-direction, hold-to-move joystick. Firmware-confirmed; MQTT method name and payload shape not yet captured |
 | `HighResolutionManualControlCapability` | ❌ | the joystick is discrete 4-direction, not continuous — `ManualControlCapability` is the right shape |
-| `MappingPassCapability` | ✅ | `service.build_map {ctrl_value: 1}` — confirmed both client-side (`MapsVM.buildMap()`, decompiled APK) and firmware-side (`RobotApp` strings: `parseSetBuildMapModeEi`, `parseSetAIStartBuildMap`). Same payload `KaercherBasicControlCapability.start()` already sends as its own no-rooms-known fallback. Not yet live-tested |
+| `MappingPassCapability` | ✅ | `service.build_map {ctrl_value: 1}` — confirmed both client-side (`MapsVM.buildMap()`, decompiled APK) and firmware-side (`RobotApp` strings: `parseSetBuildMapModeEi`, `parseSetAIStartBuildMap`). Same payload `KaercherBasicControlCapability.start()` already sends as its own no-rooms-known fallback. Live-confirmed 2026-09-30 (create/recover map) |
 | `CleanRouteControlCapability` | 🟨 | `mop_route`/`sweep_type` are in the property stream; valid enum values never reversed |
 
 ### Map & rooms
@@ -84,7 +87,7 @@ Most rows here are **not yet live-tested** — see the per-row notes below for w
 | `MapSnapshotCapability` | ❔/⬜ | closest analog is `upload_by_mapid`/multi-map switching — not a snapshot-restore concept |
 | `PersistentMapControlCapability` | ❔ | multi-map (`map_num`, `house_infos`) is always-on; no toggle to disable found |
 | `PendingMapChangeHandlingCapability` | ❔ | no evidence found |
-| *(no matching capability)* — map list: list/switch/rename/delete | — | **Gap in Valetudo's taxonomy, not the RCV5's — the RCV5 side is now fully reverse-engineered.** All five commands confirmed both client-side (`MapsVM.java`, decompiled APK) and firmware-side (`RobotApp` strings): `service.get_map_list` (`service_invoke/get_map_list`, `{}` → reply `{"map_list":[{"id","name","cur"}]}`), `service.set_cur_map` (`service_invoke/set_cur_map`, `{"map_id": N}` — this is the switch-map command a prior investigation had marked as never reverse-engineered), `service.rename_map` (`service_invoke/rename_map`, `{"map_id": N, "map_name": "..."}`), `service.del_map` (`service_invoke/del_map`, `{"map_id": N}`). None of Valetudo's 53 capability types model a map-list UI — building this needs new core capability type(s) plus new frontend, not just a Kärcher-side class. See `project_rcv5_valetudo_multimap_gap` / `project_rcv5_valetudo_map_management` memory |
+| *(no matching capability)* — map list: list/switch/rename/delete | — | **Gap in Valetudo's taxonomy, not the RCV5's — the RCV5 side is now fully reverse-engineered.** All five commands confirmed both client-side (`MapsVM.java`, decompiled APK) and firmware-side (`RobotApp` strings): `service.get_map_list` (`service_invoke/get_map_list`, `{}` → reply `{"map_list":[{"id","name","cur"}]}`), `service.set_cur_map` (`service_invoke/set_cur_map`, `{"map_id": N}` — this is the switch-map command a prior investigation had marked as never reverse-engineered), `service.rename_map` (`service_invoke/rename_map`, `{"map_id": N, "map_name": "..."}`), `service.del_map` (`service_invoke/del_map`, `{"map_id": N}`). None of Valetudo's 53 capability types model a map-list UI, so this shipped **not** as a capability but as a custom Express route (`/api/v2/karcher/maps/`, `KaercherMapsRouter.js`) plus a karcher-ui "Saved maps" page (`MapsPage.tsx`): list/switch/rename/delete/create, live-confirmed 2026-09-30. Create drives the robot around undocked to build a new map. See `project_rcv5_valetudo_map_management` memory and the main `README.md` |
 
 ### Floor sensing / navigation behavior
 
@@ -145,8 +148,8 @@ Most rows here are **not yet live-tested** — see the per-row notes below for w
 | `WifiConfigurationCapability` / `LinuxWifiScanCapability` | ✅ | Embedded-only, runs against the robot's own Linux `wpa_cli`/`iw`, independent of Kärcher's cloud. Full button-triggered open-AP WiFi management (shadow-copy/restore, timeout/revert) built on top — live-confirmed end to end, see the main `README.md` |
 | `CameraLightControlCapability` | ❌ | no property found |
 | `KeyLockCapability` | ❔ | no lock/child-lock property found |
-| `DuststreamingCapability` | ❔ | no particulate-sensor stream property found |
-| `QuirksCapability` | ✅ | Implemented 2026-09-22 — bare core `QuirksCapability`, no Kärcher subclass needed, fed one quirk from `KaercherQuirkFactory.js` (mirrors `ViomiQuirkFactory.js`'s pattern). Currently just "Carpet Display" (`privacy.carpet_show`, see the orphans table below for why this landed here rather than a new capability type). Not exposed over MQTT (no `QuirksCapability` entry in `HandleMappings.js` for any vendor — by design, same as every other vendor's Quirks). Renders as a dropdown, not a toggle — `Quirks.tsx` always uses a `<Select>` regardless of option count, same for every vendor's quirks. **The designed home for further orphans below**, not a shrug. Live-confirmed 2026-09-24 (carpet display) |
+| `DuststreamingCapability` | ❌ | no particulate-sensor stream property. Note: the RCV5's actual *camera* video is shipped as a custom route (`/api/v2/karcher/camera/`), **not** this capability — jsmpeg (Valetudo's duststream player) is MPEG-1-only and can't decode the robot's H.264, so reusing Duststreaming directly isn't possible. See the orphans table |
+| `QuirksCapability` | ✅ | Implemented 2026-09-22 — bare core `QuirksCapability`, no Kärcher subclass needed, fed four quirks from `KaercherQuirkFactory.js` (mirrors `ViomiQuirkFactory.js`'s pattern): **Carpet Display** (`privacy.carpet_show`, live-confirmed 2026-09-24), **Automatic Firmware Updates** (whether the robot may install a vendor-pushed OTA — off keeps the boot hook safe, see the orphans table and the main `README.md`), **Camera** (opt-in gate for the camera-streaming route, see orphans), and **Web UI HTTPS** (also serve the UI over HTTPS on 8443, see the main `README.md`).  See the orphans table below for why vendor toggles land here rather than as new capability types. Not exposed over MQTT (no `QuirksCapability` entry in `HandleMappings.js` for any vendor — by design, same as every other vendor's Quirks). Renders as a dropdown, not a toggle — `Quirks.tsx` always uses a `<Select>` regardless of option count, same for every vendor's quirks. **The designed home for further orphans below**, not a shrug. Live-confirmed 2026-09-24 (carpet display) |
 
 ## Orphans — features with no dedicated Valetudo capability
 
@@ -161,7 +164,8 @@ this — vendor-specific toggles bundled into one class instead of left unimplem
 | Voice on/off (distinct from volume) | Likely the `sound` property (in the stream, values unconfirmed) |
 | Robot leveling calibration (off-dock only) | `set_calibration`, in the APK command table |
 | Schedules | **Not actually a gap** — Valetudo schedules locally in core, independent of any vendor capability |
-| Firmware auto-update toggle | Not merely N/A — **turning it off matters operationally** once Valetudo is installed. A future vendor OTA would reactivate `S99_auto_reboot`'s dormant clobber-guard (see the main `README.md`'s Known Limitations) and start overwriting the boot hook |
+| ~~Firmware auto-update toggle~~ | ✅ **Implemented** as the "Automatic Firmware Updates" `QuirksCapability` quirk (`AUTO_UPGRADE`, `KaercherQuirkFactory.js`). Matters operationally: a vendor OTA would reactivate `S99_auto_reboot`'s dormant clobber-guard (see the main `README.md`'s Known Limitations) and start overwriting the boot hook, so this defaults to off |
+| Camera (live video) | ✅ **Implemented** as a custom Express route (`/api/v2/karcher/camera/`, `KaercherCameraRouter.js` + `backend/lib/robots/karcher/camera/`) and a karcher-ui "Camera" page, gated behind the opt-in **Camera** quirk. In-process remux: spawns the robot's `rkmedia_vi_venc_rtsp_test` demo encoder, reads its H.264 RTSP on `127.0.0.1:554`, repackages to MPEG-TS for `mpegts.js` in the browser; no transcode. **Not** a `DuststreamingCapability` (jsmpeg is MPEG-1-only). Committed `12cf91ed`; a floating-over-the-map overlay is on the unpushed `karcher-ui-card-layout` branch. **Security:** port 554 is open + unauthenticated to the LAN while it runs — see the main `README.md` |
 | Upload map / cleaning records to cloud, withdraw consent | Almost certainly more fields in the same `privacy` object as `carpet_turbo`/`ai_recognize`. "Withdraw consent" ≈ `delete_device`. A single `prop.get` of the whole `privacy` object would cheaply enumerate all of it |
 | Device ID / MAC / robot name / time zone | Identity fields, already available generically; time zone is N/A — Valetudo owns the system clock on-device |
 | Factory reset | `reset_factory` exists; deliberately not something to expose casually |
@@ -275,8 +279,8 @@ the user, not made inline from this one.
 9. `VoicePackManagementCapability` — `voice_type`
 10. ~~`ObstacleAvoidanceControlCapability`~~ — done, 2026-09-22, plus a `QuirksCapability` carpet-display quirk (not yet live-tested)
 11. ~~`TotalStatisticsCapability`~~ — done, built from `event.clean_record.post`, not yet live-tested
-12. ~~`MappingPassCapability`~~ — done, `service.build_map {ctrl_value: 1}`, not yet live-tested
-13. Map list (list/switch/rename/delete saved maps) — protocol fully reverse-engineered this session, but needs new Valetudo core taxonomy + frontend, not just a Kärcher capability — see the Map & rooms table above
+12. ~~`MappingPassCapability`~~ — done, `service.build_map {ctrl_value: 1}`, live-confirmed 2026-09-30
+13. ~~Map list (list/switch/rename/delete/create saved maps)~~ — done, shipped as a custom route (`/api/v2/karcher/maps/`) + karcher-ui "Saved maps" page, live-confirmed 2026-09-30; sidestepped the missing core taxonomy rather than adding it
 
 Everything 🟨 or 🔶 needs one live MQTT capture before shipping — don't
 implement against APK-only payloads. The single highest-value capture is the

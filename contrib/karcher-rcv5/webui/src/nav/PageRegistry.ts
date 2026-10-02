@@ -1,5 +1,24 @@
 import React from "react";
+import {
+    AccessTime as TimeIcon,
+    Article as LogIcon,
+    CleaningServices as RobotSectionIcon,
+    Equalizer as StatisticsIcon,
+    Help as HelpIcon,
+    Hub as ConnectivityIcon,
+    Info as AboutIcon,
+    Layers as SavedMapsIcon,
+    Map as MapManagementIcon,
+    MoreHoriz as MiscIcon,
+    PendingActions as PendingActionsIcon,
+    SettingsRemote as SettingsRemoteIcon,
+    SmartToy as AiIcon,
+    SystemUpdateAlt as UpdaterIcon,
+    Videocam as CameraIcon,
+    Wysiwyg as SystemInformationIcon
+} from "@mui/icons-material";
 import {Capability} from "api";
+import {RobotMonochromeIcon, ValetudoMonochromeIcon} from "components/CustomIcons";
 import CameraPage from "../CameraPage";
 import CleaningOptions from "../CleaningOptions";
 import MapsPage from "../MapsPage";
@@ -41,37 +60,56 @@ export interface PageDef {
     component: React.ComponentType<any>,
     props?: Record<string, unknown>,
     gate?: CapabilityGate,
+    // Row icon and subtitle when the page is listed in a section menu. Icons as in Valetudo's drawer.
+    icon?: React.ElementType,
+    description?: string,
     // Map pages size themselves to their container's height instead of scrolling with the sheet.
     layout?: "fill",
     // Camera and Spectator are additionally hidden unless duststreaming is switched on.
-    needsDuststreamEnabled?: boolean
+    needsDuststreamEnabled?: boolean,
+    // Opened from the action bar, not the menu, so the sheet has no Back button.
+    standalone?: boolean
 }
 
 // Keys are the route paths Valetudo's own router uses, so the `url` props of the reused
 // list-menu links can be used as keys without any translation.
 export const PAGE_REGISTRY: Record<string, PageDef> = {
     // Not in any section: opened from the action bar.
-    "/cleaning_options": {title: "Cleaning options", component: CleaningOptions},
+    "/cleaning_options": {title: "Cleaning options", component: CleaningOptions, standalone: true},
     "/karcher/maps": {title: "Saved maps", component: MapsPage},
-    "/karcher/camera": {title: "Camera", component: CameraPage, layout: "fill"},
+    "/karcher/camera": {
+        title: "Camera",
+        component: CameraPage,
+        layout: "fill",
+        icon: CameraIcon,
+        description: "Live view from the robot's camera"
+    },
     "/robot/consumables": {
         title: "Consumables",
         component: Consumables,
+        icon: PendingActionsIcon,
+        description: "Check and reset brushes, filters and other wear parts",
         gate: {type: "allof", capabilities: [Capability.ConsumableMonitoring]}
     },
     "/robot/manual_control": {
         title: "Manual control",
         component: ManualControl,
+        icon: SettingsRemoteIcon,
+        description: "Drive the robot by hand",
         gate: {type: "anyof", capabilities: [Capability.ManualControl, Capability.HighResolutionManualControl]}
     },
     "/robot/total_statistics": {
         title: "Statistics",
         component: TotalStatistics,
+        icon: StatisticsIcon,
+        description: "Totals across all cleanups",
         gate: {type: "allof", capabilities: [Capability.TotalStatistics]}
     },
     "/robot/camera": {
         title: "Camera",
         component: Duststream,
+        icon: CameraIcon,
+        description: "Live view from the robot's camera",
         gate: {type: "allof", capabilities: [Capability.Duststreaming]},
         needsDuststreamEnabled: true
     },
@@ -124,26 +162,38 @@ export const PAGE_REGISTRY: Record<string, PageDef> = {
         gate: {type: "allof", capabilities: [Capability.Quirks]}
     },
     "/options/valetudo/analytics": {title: "Analytics", component: Analytics},
-    "/valetudo/timers": {title: "Timers", component: Timers},
-    "/valetudo/log": {title: "Log", component: Log},
-    "/valetudo/updater": {title: "Updater", component: Updater},
-    "/valetudo/system_information": {title: "System Information", component: SystemInformation},
-    "/valetudo/ai": {title: "AI Assistant", component: ValetudoAI},
-    "/valetudo/help": {title: "General Help", component: Help},
-    "/valetudo/about": {title: "About Valetudo", component: About},
+    "/valetudo/timers": {title: "Timers", component: Timers, icon: TimeIcon, description: "Schedule cleanups"},
+    "/valetudo/log": {title: "Log", component: Log, icon: LogIcon, description: "Valetudo's log messages"},
+    "/valetudo/updater": {title: "Updater", component: Updater, icon: UpdaterIcon, description: "Check for and install Valetudo updates"},
+    "/valetudo/system_information": {
+        title: "System Information",
+        component: SystemInformation,
+        icon: SystemInformationIcon,
+        description: "Robot, Valetudo and host details"
+    },
+    "/valetudo/ai": {title: "AI Assistant", component: ValetudoAI, icon: AiIcon, description: "Ask questions about Valetudo"},
+    "/valetudo/help": {title: "General Help", component: Help, icon: HelpIcon, description: "How Valetudo works"},
+    "/valetudo/about": {title: "About Valetudo", component: About, icon: AboutIcon, description: "Version, license and credits"},
 };
 
 export interface SectionDef {
     title: string,
+    icon: React.ElementType,
+    // Subtitle of the section's own menu, as Valetudo's hub pages have
+    description?: string,
     pageKeys: Array<string>,
     gate?: CapabilityGate,
     // A reused Valetudo page that is itself the section's menu, rendered instead of a flat list.
-    hub?: React.ComponentType
+    hub?: React.ComponentType,
+    // A section with a single page opens that page directly, with no one-row menu in between.
+    page?: string
 }
 
 export const SECTIONS: Record<string, SectionDef> = {
     robot: {
         title: "Robot",
+        icon: RobotSectionIcon,
+        description: "Wear parts, statistics and other robot pages",
         pageKeys: ["/robot/consumables", "/robot/manual_control", "/robot/total_statistics", "/robot/camera", "/karcher/camera"],
         gate: {
             type: "anyof",
@@ -158,6 +208,7 @@ export const SECTIONS: Record<string, SectionDef> = {
     },
     map: {
         title: "Map Options",
+        icon: MapManagementIcon,
         pageKeys: [],
         hub: MapManagement,
         gate: {
@@ -173,12 +224,14 @@ export const SECTIONS: Record<string, SectionDef> = {
             ]
         }
     },
-    savedMaps: {title: "Saved maps", pageKeys: ["/karcher/maps"]},
-    connectivity: {title: "Connectivity Options", pageKeys: [], hub: ConnectivityOptions},
-    robotOptions: {title: "Robot Options", pageKeys: [], hub: RobotOptions},
-    valetudoOptions: {title: "Valetudo Options", pageKeys: [], hub: ValetudoOptions},
+    savedMaps: {title: "Saved maps", icon: SavedMapsIcon, pageKeys: ["/karcher/maps"], page: "/karcher/maps"},
+    connectivity: {title: "Connectivity Options", icon: ConnectivityIcon, pageKeys: [], hub: ConnectivityOptions},
+    robotOptions: {title: "Robot Options", icon: RobotMonochromeIcon, pageKeys: [], hub: RobotOptions},
+    valetudoOptions: {title: "Valetudo Options", icon: ValetudoMonochromeIcon, pageKeys: [], hub: ValetudoOptions},
     misc: {
         title: "Misc",
+        icon: MiscIcon,
+        description: "Timers, log, updates and help",
         pageKeys: [
             "/valetudo/timers",
             "/valetudo/log",

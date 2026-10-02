@@ -307,5 +307,141 @@ describe("KaercherMapParser", () => {
 
             assert.strictEqual(KaercherMapParser.BUILD_VALETUDO_MAP(robotMap), null);
         });
+
+        it("marks the room clean's rooms active and no others", () => {
+            const map = KaercherMapParser.BUILD_VALETUDO_MAP(buildRobotMap(), {activeSegmentIds: [10]});
+
+            assert.strictEqual(findLayer(map, "segment", 10).metaData.active, true);
+            assert.strictEqual(findLayer(map, "segment", 14).metaData.active, undefined);
+        });
+
+        it("adds currentSegmentId only while tracking the current room", () => {
+            const robotMap = corridor([[0.2, 1.3, 1]]);
+
+            assert.strictEqual(KaercherMapParser.BUILD_VALETUDO_MAP(robotMap).metaData.currentSegmentId, undefined);
+            assert.strictEqual(
+                KaercherMapParser.BUILD_VALETUDO_MAP(robotMap, {trackCurrentRoom: true}).metaData.currentSegmentId,
+                "10"
+            );
+        });
+
+        it("reports travelling instead of a room while the robot drives between rooms", () => {
+            const map = KaercherMapParser.BUILD_VALETUDO_MAP(corridor([[0.2, 1.3, 1], [1.4, 1.8, 0]]), {trackCurrentRoom: true});
+
+            assert.strictEqual(map.metaData.travelling, true);
+            assert.strictEqual(map.metaData.currentSegmentId, undefined);
+        });
+    });
+
+    describe("CURRENT_ROOM", () => {
+        const room = (segmentId) => {
+            return {segmentId: segmentId, travelling: false};
+        };
+        const TRAVELLING = {segmentId: undefined, travelling: true};
+
+        it("stays in the room while the robot cleans into the next room's doorway", () => {
+            // 40 cm into room 11, checked at the deepest point and after coming back
+            assert.deepStrictEqual(KaercherMapParser.CURRENT_ROOM(corridor([[0.2, 1.4, 1], [1.5, 1.9, 1]]), []), room(10));
+            assert.deepStrictEqual(
+                KaercherMapParser.CURRENT_ROOM(corridor([[0.2, 1.4, 1], [1.5, 1.9, 1], [1.8, 1.0, 1]]), []),
+                room(10)
+            );
+        });
+
+        it("switches room once the robot is 1 m from where it entered", () => {
+            assert.deepStrictEqual(KaercherMapParser.CURRENT_ROOM(corridor([[0.2, 1.4, 1], [1.5, 2.4, 1]]), []), room(10));
+            assert.deepStrictEqual(KaercherMapParser.CURRENT_ROOM(corridor([[0.2, 1.4, 1], [1.5, 2.5, 1]]), []), room(11));
+        });
+
+        it("reports travelling, not the room it stands in, before the first cleaning point", () => {
+            // Idle in one room, sent to clean others: the drive out is all transit points
+            const robotMap = corridor([[0.2, 0.8, 0]]);
+            robotMap.currentPose = {x: 0.2, y: 0.025, phi: 0};
+
+            assert.deepStrictEqual(KaercherMapParser.CURRENT_ROOM(robotMap, []), TRAVELLING);
+        });
+
+        it("reports travelling after 5 transit points in a row, but not after fewer", () => {
+            assert.deepStrictEqual(KaercherMapParser.CURRENT_ROOM(corridor([[0.2, 1.3, 1], [1.4, 1.8, 0]]), []), TRAVELLING);
+            assert.deepStrictEqual(KaercherMapParser.CURRENT_ROOM(corridor([[0.2, 1.3, 1], [1.4, 1.7, 0]]), []), room(10));
+        });
+
+        it("names the first room of the clean, in the order sent, that the path hasn't cleaned yet", () => {
+            // Sent order 11, 10, 12; 11 is done, so the robot is heading for 10
+            const robotMap = corridor([[1.5, 2.9, 1], [3.0, 3.4, 0]]);
+
+            assert.deepStrictEqual(
+                KaercherMapParser.CURRENT_ROOM(robotMap, [11, 10, 12]),
+                {segmentId: undefined, travelling: true, nextSegmentId: 10}
+            );
+            assert.deepStrictEqual(KaercherMapParser.CURRENT_ROOM(robotMap, []), TRAVELLING);
+        });
+
+        it("after travelling, the first cleaning point sets the new room", () => {
+            const robotMap = corridor([[0.2, 1.3, 1], [1.4, 1.8, 0], [1.9, 2.1, 1]]);
+
+            assert.deepStrictEqual(KaercherMapParser.CURRENT_ROOM(robotMap, []), room(11));
+        });
+
+        it("keeps the first room through a doorway visit before it is 1 m in", () => {
+            // Live 2026-10-02: 9 cleaning points into the Bathroom, then 6 in the Hall doorway
+            const robotMap = corridor([[1.0, 1.4, 0], [2.1, 2.9, 1], [3.0, 3.5, 1]]);
+            robotMap.currentPose = {x: 3.5, y: 0.025, phi: 0};
+
+            assert.deepStrictEqual(KaercherMapParser.CURRENT_ROOM(robotMap, []), room(11));
+        });
+
+        it("doesn't count driving between cleaning strips inside the room as travelling", () => {
+            // Live 2026-10-02: 11 transit points in a row inside the Bathroom
+            const robotMap = corridor([[0.2, 1.0, 1], [1.1, 0.1, 0]]);
+
+            assert.deepStrictEqual(KaercherMapParser.CURRENT_ROOM(robotMap, [10, 11]), room(10));
+        });
+
+        it("falls back to the robot's position when the path has no points", () => {
+            const robotMap = corridor([]);
+            robotMap.currentPose = {x: 2.0, y: 0.025, phi: 0};
+
+            assert.deepStrictEqual(KaercherMapParser.CURRENT_ROOM(robotMap, []), room(11));
+        });
+
+        it("ignores rooms outside the room clean", () => {
+            assert.deepStrictEqual(KaercherMapParser.CURRENT_ROOM(corridor([[0.2, 1.4, 1], [1.5, 2.9, 1]]), [10]), room(10));
+
+            const robotMap = corridor([]);
+            robotMap.currentPose = {x: 0.5, y: 0.025, phi: 0};
+
+            assert.deepStrictEqual(KaercherMapParser.CURRENT_ROOM(robotMap, [11]), room(undefined));
+        });
     });
 });
+
+/**
+ * A 4.5 m corridor, one 5 cm cell high: rooms 10, 11 and 12, 1.5 m each. The robot walks
+ * along it in 10 cm steps, as far apart as real path points (live 2026-10-02).
+ *
+ * @param {Array<[number, number, number]>} legs [from x, to x (both in metres, inclusive), update flag]
+ * @return {object}
+ */
+function corridor(legs) {
+    const cells = Array.from({length: 90}, (_, col) => {
+        return 10 + Math.floor(col / 30);
+    });
+    const points = legs.flatMap(([from, to, update]) => {
+        // Decimetres, so the steps don't pick up floating point error
+        const step = to >= from ? 1 : -1;
+        const result = [];
+
+        for (let dm = Math.round(from * 10); dm !== Math.round(to * 10) + step; dm += step) {
+            result.push({x: dm / 10, y: 0.025, update: update});
+        }
+
+        return result;
+    });
+
+    return {
+        mapHead: {mapHeadId: 1, sizeX: 90, sizeY: 1, minX: 0, minY: 0, resolution: 0.05},
+        mapData: {mapData: Buffer.from(cells)},
+        historyPose: {points: points}
+    };
+}

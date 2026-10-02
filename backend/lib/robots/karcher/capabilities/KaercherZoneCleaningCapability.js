@@ -45,6 +45,7 @@ class KaercherZoneCleaningCapability extends ZoneCleaningCapability {
 
         await this.robot.sendServiceInvoke("set_zone_points", {zone_points: zonePoints});
         await this.robot.sendServiceInvoke("set_zone_clean", {ctrl_value: 1});
+        this.robot.setActiveCleanSegments([]);
     }
 
     /**

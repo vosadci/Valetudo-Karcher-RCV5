@@ -41,44 +41,15 @@ if (!babelAppRule) {
 
 babelAppRule.include = [babelAppRule.include, webuiSrc];
 
-// "Segment" -> "Room" (and "Zones" -> "Zone") wording, matching the karcher_home_robots
+// "Segment" -> "Room" wording, matching the karcher_home_robots
 // Lovelace card's terminology (custom_components/karcher_home_robots/www/card/i18n.js,
 // karcher-rcv5-ha repo). Applied via enforce:"pre" loaders on raw source, ahead of
-// babel-loader, to an explicit two-file whitelist — not a general i18n mechanism. Each
+// babel-loader, to an explicit per-file whitelist — not a general i18n mechanism. Each
 // pair hard-fails the build if the expected source string is missing, so upstream wording
 // drift breaks the build instead of silently leaving stale "Segment" text in place.
 const stringReplaceLoaderPath = path.resolve(webuiRoot, "stringReplaceLoader.js");
 
 config.module.rules.push(
-    {
-        enforce: "pre",
-        test: /\.tsx$/,
-        include: path.join(frontendDir, "src/map/LiveMapModeSwitcher.tsx"),
-        use: [{
-            loader: stringReplaceLoaderPath,
-            options: {
-                replacements: [
-                    ["\"segments\": \"Segments\"", "\"segments\": \"Rooms\""],
-                    ["\"zones\": \"Zones\"", "\"zones\": \"Zone\""],
-                ],
-            },
-        }],
-    },
-    {
-        enforce: "pre",
-        test: /\.tsx$/,
-        include: path.join(frontendDir, "src/map/actions/live_map_actions/SegmentActions.tsx"),
-        use: [{
-            loader: stringReplaceLoaderPath,
-            options: {
-                replacements: [
-                    ["Clean {segments.length} segments", "Clean {segments.length} rooms"],
-                    ["Cannot start segment cleaning while the robot is busy", "Cannot start room cleaning while the robot is busy"],
-                    ["currently selected segments", "currently selected rooms"],
-                ],
-            },
-        }],
-    },
     {
         enforce: "pre",
         test: /\.tsx$/,
@@ -187,6 +158,116 @@ config.plugins.push(
     })
 );
 
+// The live map's room and zone "Clean" buttons are replaced so the action bar's main button starts
+// every clean (map/RoomSelectionActions.tsx, map/ZoneTargetActions.tsx). Only LiveMap imports
+// live_map_actions/*; EditMap uses edit_map_actions/SegmentActions, which these patterns don't match.
+// The replacements rely on the props LiveMap passes. If upstream changes them, fail here, not at runtime.
+const liveMapSource = fs.readFileSync(path.join(frontendDir, "src/map/LiveMap.tsx"), "utf8");
+const liveMapContract = [
+    "import SegmentActions from \"./actions/live_map_actions/SegmentActions\";",
+    "<SegmentActions",
+    "segments={this.state.selectedSegmentIds}",
+    "onClear={() => {",
+    "import ZoneActions from \"./actions/live_map_actions/ZoneActions\";",
+    "<ZoneActions",
+    "zones={this.state.zones}",
+    "convertPixelCoordinatesToCMSpace={(coordinates => {",
+    "onAdd={() => {",
+    "import {LiveMapModeSwitcher} from \"./LiveMapModeSwitcher\";",
+    "supportedModes={this.supportedModes}",
+    "currentMode={this.state.mode}",
+    "setMode={(newMode) => {",
+];
+const brokenLiveMapContract = liveMapContract.filter(s => !liveMapSource.includes(s));
+
+if (brokenLiveMapContract.length > 0) {
+    throw new Error(
+        "karcher-ui: frontend/src/map/LiveMap.tsx no longer passes SegmentActions/ZoneActions what map/RoomSelectionActions.tsx " +
+        "and map/ZoneTargetActions.tsx expect. " +
+        `Missing: ${JSON.stringify(brokenLiveMapContract)}`
+    );
+}
+
+config.plugins.push(
+    new webpack.NormalModuleReplacementPlugin(/live_map_actions\/SegmentActions$/, (resource) => {
+        resource.request = path.resolve(webuiSrc, "map/RoomSelectionActions.tsx");
+    }),
+    new webpack.NormalModuleReplacementPlugin(/live_map_actions\/ZoneActions$/, (resource) => {
+        resource.request = path.resolve(webuiSrc, "map/ZoneTargetActions.tsx");
+    }),
+    new webpack.NormalModuleReplacementPlugin(/\/LiveMapModeSwitcher$/, (resource) => {
+        resource.request = path.resolve(webuiSrc, "map/MapModeToggle.tsx");
+    })
+);
+
+// LiveMapPage renders map/ResettableLiveMap.tsx, a LiveMap subclass that adds the reset-zoom button.
+// Scoped to LiveMapPage as the importer: the subclass itself imports the real LiveMap.
+const liveMapPageSource = fs.readFileSync(path.join(frontendDir, "src/map/LiveMapPage.tsx"), "utf8");
+const baseMapSource = fs.readFileSync(path.join(frontendDir, "src/map/BaseMap.tsx"), "utf8");
+const resetZoomContract = [
+    [liveMapPageSource, "import LiveMap from \"./LiveMap\";"],
+    [baseMapSource, "componentDidMount(): void {"],
+    [baseMapSource, "protected ctxWrapper!: Canvas2DContextTrackingWrapper;"],
+    [baseMapSource, "protected currentScaleFactor = 1;"],
+    [baseMapSource, "protected draw() : void {"],
+    [baseMapSource, "protected canvas!: HTMLCanvasElement;"],
+    [baseMapSource, "protected readonly resizeListener: () => void;"],
+    [baseMapSource, "componentWillUnmount(): void {"],
+    // ResettableLiveMap.fitTransform repeats this fit for new canvas sizes
+    [baseMapSource, "this.canvas.width / ((boundingBox.maxX - boundingBox.minX)*1.1),"],
+    [baseMapSource, "const initialxOffset = (this.canvas.width - (boundingBox.maxX - boundingBox.minX)*initialScalingFactor) / 2;"],
+];
+const brokenResetZoomContract = resetZoomContract.filter(([source, s]) => !source.includes(s)).map(([, s]) => s);
+
+if (brokenResetZoomContract.length > 0) {
+    throw new Error(
+        "karcher-ui: map/LiveMapPage.tsx or map/BaseMap.tsx changed in a way map/ResettableLiveMap.tsx depends on. " +
+        `Missing: ${JSON.stringify(brokenResetZoomContract)}`
+    );
+}
+
+config.plugins.push(
+    new webpack.NormalModuleReplacementPlugin(/^\.\/LiveMap$/, (resource) => {
+        if ((resource.contextInfo?.issuer ?? "").endsWith(path.join("src", "map", "LiveMapPage.tsx"))) {
+            resource.request = path.resolve(webuiSrc, "map/ResettableLiveMap.tsx");
+        }
+    })
+);
+
+// Room labels are drawn like the Lovelace card's (map/CardSegmentLabelMapStructure.ts, a subclass that
+// overrides draw()). Scoped to StructureManager, the only place labels are created; other importers
+// only read the TYPE, which the subclass inherits.
+const structureManagerSource = fs.readFileSync(path.join(frontendDir, "src/map/StructureManager.ts"), "utf8");
+const segmentLabelSource = fs.readFileSync(path.join(frontendDir, "src/map/structures/map_structures/SegmentLabelMapStructure.ts"), "utf8");
+const segmentLabelContract = [
+    [structureManagerSource, "import SegmentLabelMapStructure from \"./structures/map_structures/SegmentLabelMapStructure\";"],
+    [structureManagerSource, "mapStructures.push(new SegmentLabelMapStructure("],
+    [segmentLabelSource, "topLabel: string | undefined;"],
+    [segmentLabelSource, "public name: string | undefined;"],
+    [segmentLabelSource, "draw(ctxWrapper: Canvas2DContextTrackingWrapper, transformationMatrixToScreenSpace: DOMMatrixInit, scaleFactor: number): void {"],
+    [segmentLabelSource, "onTap() {"],
+    // The area/id line repeats upstream's zoom threshold and wording
+    [segmentLabelSource, "if (scaleFactor >= considerHiDPI(11)) {"],
+    [segmentLabelSource, "let metaString = (this.area / 10000).toPrecision(2) + \" m²\";"],
+    [segmentLabelSource, "metaString += ` (id=${this.id})`;"],
+];
+const brokenSegmentLabelContract = segmentLabelContract.filter(([source, s]) => !source.includes(s)).map(([, s]) => s);
+
+if (brokenSegmentLabelContract.length > 0) {
+    throw new Error(
+        "karcher-ui: map/StructureManager.ts or SegmentLabelMapStructure.ts changed in a way map/CardSegmentLabelMapStructure.ts depends on. " +
+        `Missing: ${JSON.stringify(brokenSegmentLabelContract)}`
+    );
+}
+
+config.plugins.push(
+    new webpack.NormalModuleReplacementPlugin(/\/SegmentLabelMapStructure$/, (resource) => {
+        if ((resource.contextInfo?.issuer ?? "").endsWith(path.join("src", "map", "StructureManager.ts"))) {
+            resource.request = path.resolve(webuiSrc, "map/CardSegmentLabelMapStructure.ts");
+        }
+    })
+);
+
 config.plugins = config.plugins.filter(plugin => {
     return plugin.constructor.name !== "ForkTsCheckerWebpackPlugin" && plugin.constructor.name !== "ESLintPlugin";
 });
@@ -253,8 +334,25 @@ compiler.run((err, stats) => {
         swapFailures.push("react-router is still bundled (the LinkListMenuItem swap did not apply)");
     }
 
+    // A string only upstream's live-map SegmentActions has
+    if (emittedJs.includes("currently selected segments with the currently configured parameters")) {
+        swapFailures.push("upstream live-map SegmentActions is still bundled (the RoomSelectionActions swap did not apply)");
+    }
+
+    if (emittedJs.includes("Map Mode Selector")) {
+        swapFailures.push("upstream LiveMapModeSwitcher is still bundled (the MapModeToggle swap did not apply)");
+    }
+
+    if (emittedJs.includes("currently drawn zones with the currently configured parameters")) {
+        swapFailures.push("upstream live-map ZoneActions is still bundled (the ZoneTargetActions swap did not apply)");
+    }
+
+    if (!emittedJs.includes("Reset zoom")) {
+        swapFailures.push("map/ResettableLiveMap.tsx is not bundled (the LiveMapPage swap did not apply)");
+    }
+
     if (swapFailures.length > 0) {
-        console.error(`karcher-ui LinkListMenuItem swap failed: ${swapFailures.join("; ")}`);
+        console.error(`karcher-ui module swap failed: ${swapFailures.join("; ")}`);
         process.exitCode = 1;
 
         return;

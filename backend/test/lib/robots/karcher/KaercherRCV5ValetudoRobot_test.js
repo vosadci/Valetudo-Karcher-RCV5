@@ -205,6 +205,101 @@ describe("KaercherRCV5ValetudoRobot", () => {
         assert.strictEqual(robot.ephemeralState.privacy.carpet_avoid, 1);
     });
 
+    describe("room clean marks", () => {
+        // One room (id 10) in a 2x1 grid, the robot standing in it
+        function robotMapWithRoom() {
+            return {
+                mapHead: {mapHeadId: 1, sizeX: 2, sizeY: 1, minX: 0, minY: 0, resolution: 0.05},
+                mapData: {mapData: Buffer.from([10, 10])},
+                currentPose: {x: 0.025, y: 0.025, phi: 0},
+                roomDataInfo: [{roomId: 10, roomName: "Kitchen"}]
+            };
+        }
+
+        function roomLayer(robot) {
+            return robot.state.map.layers.find(l => l.metaData.segmentId === "10");
+        }
+
+        it("keeps the rooms through idle/docked pushes that arrive before cleaning starts", () => {
+            const robot = buildRobot();
+            robot.lastRobotMap = robotMapWithRoom();
+            robot.parseAndUpdateState({work_mode: 0, status: 1, charge_state: 0, fault: 0});
+            assert.strictEqual(robot.lastStatusValue, "idle");
+
+            robot.setActiveCleanSegments([10]);
+            robot.parseAndUpdateState({status: 4});
+            assert.strictEqual(robot.lastStatusValue, "docked");
+
+            assert.deepStrictEqual(robot.activeCleanSegmentIds, [10]);
+            assert.strictEqual(roomLayer(robot).metaData.active, true);
+        });
+
+        it("clears the rooms and the current room when the clean ends", () => {
+            const robot = buildRobot();
+            robot.lastRobotMap = robotMapWithRoom();
+            robot.setActiveCleanSegments([10]);
+            robot.parseAndUpdateState({work_mode: 1, status: 1});
+            robot.rebuildMap(); // stands in for the next map upload
+
+            assert.strictEqual(robot.state.map.metaData.currentSegmentId, "10");
+
+            robot.parseAndUpdateState({work_mode: 0, status: 4});
+
+            assert.deepStrictEqual(robot.activeCleanSegmentIds, []);
+            assert.strictEqual(roomLayer(robot).metaData.active, undefined);
+            assert.strictEqual(robot.state.map.metaData.currentSegmentId, undefined);
+        });
+
+        it("says \"Moving to room\" while the robot drives between rooms", () => {
+            const robot = buildRobot();
+            const statusMessage = () => {
+                return robot.state.getFirstMatchingAttribute({attributeClass: "StatusStateAttribute"}).message;
+            };
+            robot.lastRobotMap = robotMapWithRoom();
+            robot.lastRobotMap.historyPose = {
+                points: Array.from({length: 5}, () => {
+                    return {x: 0.025, y: 0.025, update: 0};
+                })
+            };
+            robot.parseAndUpdateState({work_mode: 1, status: 1});
+            robot.rebuildMap(); // stands in for the next map upload
+
+            assert.strictEqual(statusMessage(), "Moving to room");
+            assert.strictEqual(robot.state.map.metaData.currentSegmentId, undefined);
+
+            robot.parseAndUpdateState({work_mode: 0, status: 4});
+
+            assert.strictEqual(statusMessage(), undefined);
+        });
+
+        it("names the next room of a room clean", () => {
+            const robot = buildRobot();
+            robot.lastRobotMap = robotMapWithRoom();
+            robot.lastRobotMap.historyPose = {
+                points: Array.from({length: 5}, () => {
+                    return {x: 0.025, y: 0.025, update: 0};
+                })
+            };
+            robot.setActiveCleanSegments([10]);
+            robot.parseAndUpdateState({work_mode: 1, status: 1});
+            robot.rebuildMap();
+
+            assert.strictEqual(
+                robot.state.getFirstMatchingAttribute({attributeClass: "StatusStateAttribute"}).message,
+                "Moving to Kitchen"
+            );
+        });
+
+        it("clears the rooms when the robot switches to another map", () => {
+            const robot = buildRobot();
+            robot.parseAndUpdateState({current_map_id: 1});
+            robot.setActiveCleanSegments([10]);
+            robot.parseAndUpdateState({current_map_id: 2});
+
+            assert.deepStrictEqual(robot.activeCleanSegmentIds, []);
+        });
+    });
+
     describe("isZoneCleanActive", () => {
         it("is true only for the zone-clean work_mode family (30/31/32)", () => {
             const robot = buildRobot();

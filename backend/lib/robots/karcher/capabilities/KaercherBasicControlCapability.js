@@ -58,6 +58,7 @@ class KaercherBasicControlCapability extends BasicControlCapability {
             // reaction). build_map's params shape (`{ctrl_value: 1}`) is APK-derived from
             // MapsVM.buildMap(), not yet independently device-verified.
             await this.robot.startMapBuild();
+            this.robot.setActiveCleanSegments([]);
             return;
         }
 
@@ -66,6 +67,8 @@ class KaercherBasicControlCapability extends BasicControlCapability {
             ctrl_value: 1,
             clean_type: 0
         });
+        // A whole-home clean marks no rooms, as on other robots
+        this.robot.setActiveCleanSegments([]);
     }
 
     /**

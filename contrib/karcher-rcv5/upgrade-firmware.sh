@@ -165,7 +165,7 @@ ok "upgrade-firmware.sh complete. Verified firmware image staged at:"
 ok "  $HOST:$REMOTE_IMAGE"
 ok "Nothing has been flashed. Full detail: README.md 'Updating firmware'. Two options:"
 echo
-echo "  (a) SAFE, CONFIRMED — re-pair through the official Kärcher app (offers a firmware"
+echo "  (a) Via the official Kärcher app (untested here) — pair through it (offers a firmware"
 echo "      update as part of that flow). First, free the space back up:"
 echo "        ssh $REMOTE rm -rf $REMOTE_STAGE_DIR"
 echo "      Then make the robot reachable by the real app again. If you got here because"
