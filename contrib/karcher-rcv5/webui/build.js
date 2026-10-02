@@ -200,6 +200,34 @@ config.plugins.push(
     })
 );
 
+// LiveMapPage renders map/ResettableLiveMap.tsx, a LiveMap subclass that adds the reset-zoom button.
+// Scoped to LiveMapPage as the importer: the subclass itself imports the real LiveMap.
+const liveMapPageSource = fs.readFileSync(path.join(frontendDir, "src/map/LiveMapPage.tsx"), "utf8");
+const baseMapSource = fs.readFileSync(path.join(frontendDir, "src/map/BaseMap.tsx"), "utf8");
+const resetZoomContract = [
+    [liveMapPageSource, "import LiveMap from \"./LiveMap\";"],
+    [baseMapSource, "componentDidMount(): void {"],
+    [baseMapSource, "protected ctxWrapper!: Canvas2DContextTrackingWrapper;"],
+    [baseMapSource, "protected currentScaleFactor = 1;"],
+    [baseMapSource, "protected draw() : void {"],
+];
+const brokenResetZoomContract = resetZoomContract.filter(([source, s]) => !source.includes(s)).map(([, s]) => s);
+
+if (brokenResetZoomContract.length > 0) {
+    throw new Error(
+        "karcher-ui: map/LiveMapPage.tsx or map/BaseMap.tsx changed in a way map/ResettableLiveMap.tsx depends on. " +
+        `Missing: ${JSON.stringify(brokenResetZoomContract)}`
+    );
+}
+
+config.plugins.push(
+    new webpack.NormalModuleReplacementPlugin(/^\.\/LiveMap$/, (resource) => {
+        if ((resource.contextInfo?.issuer ?? "").endsWith(path.join("src", "map", "LiveMapPage.tsx"))) {
+            resource.request = path.resolve(webuiSrc, "map/ResettableLiveMap.tsx");
+        }
+    })
+);
+
 config.plugins = config.plugins.filter(plugin => {
     return plugin.constructor.name !== "ForkTsCheckerWebpackPlugin" && plugin.constructor.name !== "ESLintPlugin";
 });
@@ -277,6 +305,10 @@ compiler.run((err, stats) => {
 
     if (emittedJs.includes("currently drawn zones with the currently configured parameters")) {
         swapFailures.push("upstream live-map ZoneActions is still bundled (the ZoneTargetActions swap did not apply)");
+    }
+
+    if (!emittedJs.includes("Reset zoom")) {
+        swapFailures.push("map/ResettableLiveMap.tsx is not bundled (the LiveMapPage swap did not apply)");
     }
 
     if (swapFailures.length > 0) {
