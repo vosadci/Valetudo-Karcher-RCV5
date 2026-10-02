@@ -1,13 +1,17 @@
 import React from "react";
-import {Box, PaletteMode} from "@mui/material";
+import {Box, PaletteMode, useMediaQuery} from "@mui/material";
 import LiveMapPage from "map/LiveMapPage";
-import {useIsMobileView} from "hooks/useIsMobileView";
 import RobotHeader from "./RobotHeader";
 import ActionBar from "./ActionBar";
 import CleaningOptions from "./CleaningOptions";
 import NavSheet from "./nav/NavSheet";
 import {SheetNavigationProvider} from "./nav/SheetNavigationContext";
 import {PAGE_REGISTRY} from "./nav/PageRegistry";
+
+// The side panel needs ~440px for the Mode and Suction rows' labels; the map needs room for its Rooms | Zone
+// pill and Reset button. Below both together, switch to the phone layout instead of squeezing either.
+const PANEL_MIN_WIDTH = 440;
+const MAP_MIN_WIDTH = 400;
 
 const NavShell = (props: {
     paletteMode: PaletteMode,
@@ -16,7 +20,7 @@ const NavShell = (props: {
     const [sheetOpen, setSheetOpen] = React.useState(false);
     const [sectionKey, setSectionKey] = React.useState<string | null>(null);
     const [pageKey, setPageKey] = React.useState<string | null>(null);
-    const mobileView = useIsMobileView();
+    const mobileView = !useMediaQuery(`(min-width: ${PANEL_MIN_WIDTH + MAP_MIN_WIDTH}px)`, {noSsr: true});
 
     const navigation = React.useMemo(() => {
         return {
@@ -39,17 +43,17 @@ const NavShell = (props: {
             {/* 100dvh, not 100vh: on phones 100vh includes the area behind the browser's toolbars, which hid the action bar */}
             <Box sx={{height: "100vh", "@supports (height: 100dvh)": {height: "100dvh"}, display: "flex", flexDirection: "column"}}>
                 <RobotHeader/>
-                {/* Same split as Valetudo's HomePage: below the sm breakpoint the controls sit under the map, above it they are a side panel */}
+                {/* Same split as Valetudo's HomePage: narrow windows get the controls under the map, wide ones a side panel */}
                 <div style={{flex: 1, minHeight: 0, display: "flex"}}>
-                    <div style={{flex: 1, minWidth: 0}}>
+                    <div style={{flex: 1, minWidth: mobileView ? 0 : MAP_MIN_WIDTH}}>
                         {/* Unmounted while the sheet is open so only one live map/WebSocket component runs at a time */}
                         {!sheetOpen && <LiveMapPage/>}
                     </div>
                     {!mobileView && (
                         <Box
                             sx={{
-                                width: {sm: "33.33%", xl: "25%"},
-                                minWidth: 320,
+                                width: {xs: "33.33%", xl: "25%"},
+                                minWidth: PANEL_MIN_WIDTH,
                                 flexShrink: 0,
                                 display: "flex",
                                 flexDirection: "column",
