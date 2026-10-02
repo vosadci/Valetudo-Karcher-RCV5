@@ -1,8 +1,22 @@
 import React from "react";
 import {Box, IconButton, Typography} from "@mui/material";
 import MenuIcon from "@mui/icons-material/Menu";
-import BatteryChargingFullIcon from "@mui/icons-material/BatteryChargingFull";
-import BatteryFullIcon from "@mui/icons-material/BatteryFull";
+import {
+    Battery20,
+    Battery30,
+    Battery50,
+    Battery60,
+    Battery80,
+    Battery90,
+    BatteryCharging20,
+    BatteryCharging30,
+    BatteryCharging50,
+    BatteryCharging60,
+    BatteryCharging80,
+    BatteryCharging90,
+    BatteryChargingFull,
+    BatteryFull,
+} from "@mui/icons-material";
 import ValetudoEvents from "components/ValetudoEvents";
 import {useSheetNavigation} from "./nav/SheetNavigationContext";
 import {RobotAttributeClass, StatusState, useRobotAttributeQuery, useRobotInformationQuery, useRobotStatusQuery, useValetudoCustomizationsQuery} from "api";
@@ -32,12 +46,31 @@ const STATUS_LABEL: Record<StatusState["value"], string> = {
     error: "Error",
 };
 
+// MUI's seven battery steps, each covering the levels nearest to it
+const BATTERY_STEPS: Array<{below: number, icon: React.ElementType, charging: React.ElementType}> = [
+    {below: 25, icon: Battery20, charging: BatteryCharging20},
+    {below: 40, icon: Battery30, charging: BatteryCharging30},
+    {below: 55, icon: Battery50, charging: BatteryCharging50},
+    {below: 70, icon: Battery60, charging: BatteryCharging60},
+    {below: 85, icon: Battery80, charging: BatteryCharging80},
+    {below: 95, icon: Battery90, charging: BatteryCharging90},
+    {below: Infinity, icon: BatteryFull, charging: BatteryChargingFull},
+];
+
+const batteryIcon = (level: number, charging: boolean): React.ElementType => {
+    const step = BATTERY_STEPS.find((s) => {
+        return level < s.below;
+    })!;
+
+    return charging ? step.charging : step.icon;
+};
+
 const RobotHeader = (): React.ReactElement => {
     const {data: info} = useRobotInformationQuery();
     const {data: status} = useRobotStatusQuery();
     const {data: batteries} = useRobotAttributeQuery(RobotAttributeClass.BatteryState);
     const battery = batteries?.[0];
-    const BatteryIcon = battery?.flag === "charging" ? BatteryChargingFullIcon : BatteryFullIcon;
+    const BatteryIcon = batteryIcon(battery?.level ?? 100, battery?.flag === "charging");
     const {openMenu} = useSheetNavigation();
 
     const {data: customizations} = useValetudoCustomizationsQuery();
