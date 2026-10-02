@@ -250,6 +250,46 @@ describe("KaercherRCV5ValetudoRobot", () => {
             assert.strictEqual(robot.state.map.metaData.currentSegmentId, undefined);
         });
 
+        it("says \"Moving to room\" while the robot drives between rooms", () => {
+            const robot = buildRobot();
+            const statusMessage = () => {
+                return robot.state.getFirstMatchingAttribute({attributeClass: "StatusStateAttribute"}).message;
+            };
+            robot.lastRobotMap = robotMapWithRoom();
+            robot.lastRobotMap.historyPose = {
+                points: Array.from({length: 5}, () => {
+                    return {x: 0.025, y: 0.025, update: 0};
+                })
+            };
+            robot.parseAndUpdateState({work_mode: 1, status: 1});
+            robot.rebuildMap(); // stands in for the next map upload
+
+            assert.strictEqual(statusMessage(), "Moving to room");
+            assert.strictEqual(robot.state.map.metaData.currentSegmentId, undefined);
+
+            robot.parseAndUpdateState({work_mode: 0, status: 4});
+
+            assert.strictEqual(statusMessage(), undefined);
+        });
+
+        it("names the next room of a room clean", () => {
+            const robot = buildRobot();
+            robot.lastRobotMap = robotMapWithRoom();
+            robot.lastRobotMap.historyPose = {
+                points: Array.from({length: 5}, () => {
+                    return {x: 0.025, y: 0.025, update: 0};
+                })
+            };
+            robot.setActiveCleanSegments([10]);
+            robot.parseAndUpdateState({work_mode: 1, status: 1});
+            robot.rebuildMap();
+
+            assert.strictEqual(
+                robot.state.getFirstMatchingAttribute({attributeClass: "StatusStateAttribute"}).message,
+                "Moving to Kitchen"
+            );
+        });
+
         it("clears the rooms when the robot switches to another map", () => {
             const robot = buildRobot();
             robot.parseAndUpdateState({current_map_id: 1});

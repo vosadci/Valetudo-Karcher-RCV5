@@ -98,7 +98,8 @@ class KaercherMapParser {
      * - activeSegmentIds: the rooms of the room clean Valetudo started. Marked `active`,
      *   which upstream means "part of the current cleanup" (Roborock, Dreame).
      * - trackCurrentRoom: set while cleaning. Adds metaData.currentSegmentId, the room the
-     *   robot is cleaning right now, see CURRENT_SEGMENT_ID.
+     *   robot is cleaning right now, or metaData.travelling while it drives between rooms,
+     *   see CURRENT_ROOM.
      *
      * @param {object} robotMap decoded RobotMap protobuf message
      * @param {object} [cleanState]
@@ -376,10 +377,16 @@ class KaercherMapParser {
         };
 
         if (cleanState.trackCurrentRoom) {
-            const currentSegmentId = KaercherMapParser.CURRENT_SEGMENT_ID(robotMap, activeSegmentIds);
+            const currentRoom = KaercherMapParser.CURRENT_ROOM(robotMap, activeSegmentIds);
 
-            if (currentSegmentId !== undefined) {
-                mapMetaData.currentSegmentId = String(currentSegmentId);
+            if (currentRoom.travelling) {
+                mapMetaData.travelling = true;
+
+                if (currentRoom.nextSegmentId !== undefined) {
+                    mapMetaData.nextSegmentId = String(currentRoom.nextSegmentId);
+                }
+            } else if (currentRoom.segmentId !== undefined) {
+                mapMetaData.currentSegmentId = String(currentRoom.segmentId);
             }
         }
 
@@ -456,18 +463,29 @@ class KaercherMapParser {
     }
 
     /**
-     * The room the robot is cleaning, as the karcher-rcv5-ha integration works it out
-     * (coordinator._track_room_transition): replay the cleaning path, skip points flagged
-     * as transit (update 0, doc/PROTOCOL.md §13.1), and switch room only after
-     * CURRENT_ROOM_HYSTERESIS points in a row land in the new one, so brief trips through
-     * a doorway don't count. Rooms outside the current room clean are ignored. Falls back
-     * to the robot's own position when the path gives no room yet.
+     * The room the robot is cleaning: replay the cleaning path, skipping points flagged as
+     * transit (update 0, doc/PROTOCOL.md §13.1). The first cleaning point sets the room,
+     * since the robot starts cleaning in the room it drove to. After that, the room only
+     * changes once a cleaning point in another room is ROOM_SWITCH_DISTANCE from where the
+     * robot entered it: cleaning a doorway pushes ~50 cm into the next room and back, and
+     * path points are only ~10 cm apart (live 2026-10-02). Rooms outside the current room
+     * clean are ignored. The robot's own position is used only before the path has points.
+     *
+     * The robot is travelling when the path so far has no cleaning point, or when the
+     * newest TRAVELLING_POINTS points are all transit and outside the current room. Driving
+     * between cleaning strips inside a room doesn't count (live 2026-10-02: 6 and 11
+     * transit points in a row inside one room). Once travelling, no room is reported, even
+     * the one it is driving through, and the next cleaning point sets the new room.
+     *
+     * For a room clean, allowedSegmentIds is in the order sent with set_preference, which
+     * is the robot's cleaning order (doc/PROTOCOL.md §14, APK-derived). While travelling,
+     * nextSegmentId is the first of them the path hasn't cleaned yet.
      *
      * @param {object} robotMap decoded RobotMap protobuf message
      * @param {Array<number>} allowedSegmentIds empty = any room
-     * @return {number|undefined}
+     * @return {{segmentId: number|undefined, travelling: boolean, nextSegmentId?: number}}
      */
-    static CURRENT_SEGMENT_ID(robotMap, allowedSegmentIds) {
+    static CURRENT_ROOM(robotMap, allowedSegmentIds) {
         const head = robotMap.mapHead;
         const gridBytes = robotMap.mapData.mapData;
         // Grid row 0 is world minY, so no image flip here (same lookup as the integration's
@@ -494,15 +512,24 @@ class KaercherMapParser {
 
         const points = robotMap.historyPose?.points ?? [];
         let current;
+        /** @type {{segmentId: number, x: number, y: number}|undefined} where the robot entered a new room */
         let candidate;
-        let candidateCount = 0;
         let cleaningPoints = 0;
+        let transitRun = 0;
+        const cleanedSegmentIds = new Set();
 
         points.forEach((point) => {
             if (!point.update) {
+                transitRun++;
+
+                if (transitRun >= KaercherMapParser.TRAVELLING_POINTS && segmentAt(point.x, point.y) !== current) {
+                    current = undefined;
+                    candidate = undefined;
+                }
                 return;
             }
             cleaningPoints++;
+            transitRun = 0;
 
             const segmentId = segmentAt(point.x, point.y);
 
@@ -510,31 +537,40 @@ class KaercherMapParser {
                 return;
             }
 
-            if (segmentId === current) {
+            if (current === undefined) {
+                current = segmentId;
+                cleanedSegmentIds.add(segmentId);
+            } else if (segmentId === current) {
                 candidate = undefined;
-                candidateCount = 0;
-            } else if (segmentId === candidate) {
-                candidateCount++;
-
-                if (candidateCount >= KaercherMapParser.CURRENT_ROOM_HYSTERESIS) {
+            } else if (segmentId === candidate?.segmentId) {
+                if (Math.hypot(point.x - candidate.x, point.y - candidate.y) >= KaercherMapParser.ROOM_SWITCH_DISTANCE) {
                     current = segmentId;
+                    cleanedSegmentIds.add(segmentId);
                     candidate = undefined;
-                    candidateCount = 0;
                 }
             } else {
-                candidate = segmentId;
-                candidateCount = 1;
+                candidate = {segmentId: segmentId, x: point.x, y: point.y};
             }
         });
 
         // Not yet confirmed live that historyPose's `update` carries the same cleaning flag as cur_path's
         Logger.debug(`KaercherMapParser: path has ${cleaningPoints} cleaning and ${points.length - cleaningPoints} transit points`);
 
-        if (current === undefined && robotMap.currentPose) {
+        const travelling = points.length > 0 &&
+            (cleaningPoints === 0 || (transitRun >= KaercherMapParser.TRAVELLING_POINTS && current === undefined));
+
+        if (travelling) {
+            const nextSegmentId = allowedSegmentIds.find(id => !cleanedSegmentIds.has(id));
+
+            return nextSegmentId !== undefined ?
+                {segmentId: undefined, travelling: true, nextSegmentId: nextSegmentId} :
+                {segmentId: undefined, travelling: true};
+        }
+        if (points.length === 0 && robotMap.currentPose) {
             current = segmentAt(robotMap.currentPose.x, robotMap.currentPose.y);
         }
 
-        return current;
+        return {segmentId: current, travelling: false};
     }
 
     /**
@@ -599,8 +635,10 @@ class KaercherMapParser {
 }
 
 KaercherMapParser.PIXEL_SIZE = 5; // cm; matches the RCV5's 0.05m/cell grid resolution
-// Same value as the karcher-rcv5-ha integration's _ROOM_CHANGE_HYSTERESIS
-KaercherMapParser.CURRENT_ROOM_HYSTERESIS = 5;
+// Metres; see CURRENT_ROOM
+KaercherMapParser.ROOM_SWITCH_DISTANCE = 1;
+// Transit points in a row before the robot counts as travelling (~50 cm of path)
+KaercherMapParser.TRAVELLING_POINTS = 5;
 
 // RoomDataInfo.meterialId -> Valetudo MapLayer.MATERIAL. See the comment at its use site
 // above. 0/absent (unset/unknown) is deliberately not a key here.

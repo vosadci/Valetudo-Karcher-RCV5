@@ -50,6 +50,9 @@ class KaercherRCV5ValetudoRobot extends ValetudoRobot {
         // changes between uploads (the robot may stop uploading once it docks).
         this.lastRobotMap = null;
         this.lastStatusValue = undefined;
+        // Driving between rooms during a clean, from the last map's path (KaercherMapParser.CURRENT_ROOM)
+        /** @type {string|undefined} e.g. "Moving to Bedroom" */
+        this.travellingMessage = undefined;
 
         this.ephemeralState = {
             work_mode: undefined,
@@ -407,7 +410,34 @@ class KaercherRCV5ValetudoRobot extends ValetudoRobot {
         if (map) {
             this.state.map = map;
             this.emitMapUpdated();
+
+            const travellingMessage = KaercherRCV5ValetudoRobot.TRAVELLING_MESSAGE(map);
+
+            if (travellingMessage !== this.travellingMessage) {
+                this.travellingMessage = travellingMessage;
+                this.updateStatusAttribute();
+                this.emitStateAttributesUpdated();
+            }
         }
+    }
+
+    /**
+     * "Moving to Bedroom" when the parser knows the next room of a room clean, else
+     * "Moving to room"; undefined when the robot isn't travelling.
+     *
+     * @param {import("../../entities/map/ValetudoMap")} map
+     * @return {string|undefined}
+     */
+    static TRAVELLING_MESSAGE(map) {
+        if (map.metaData.travelling !== true) {
+            return undefined;
+        }
+
+        const nextRoom = map.layers.find(layer => {
+            return map.metaData.nextSegmentId !== undefined && layer.metaData.segmentId === map.metaData.nextSegmentId;
+        });
+
+        return `Moving to ${nextRoom?.metaData.name ?? "room"}`;
     }
 
     /**
@@ -1070,11 +1100,15 @@ class KaercherRCV5ValetudoRobot extends ValetudoRobot {
      */
     updateStatusAttribute() {
         const {value, faultCode, statusMessage} = KaercherStateDerivation.deriveStatus(this.ephemeralState);
+        // The robot's own message (e.g. "Self-checking") wins
+        const travellingMessage = value === stateAttrs.StatusStateAttribute.VALUE.CLEANING ?
+            this.travellingMessage :
+            undefined;
 
         this.state.upsertFirstMatchingAttribute(new stateAttrs.StatusStateAttribute({
             value: value,
             error: faultCode !== undefined ? this.buildRobotError(faultCode) : undefined,
-            message: statusMessage
+            message: statusMessage ?? travellingMessage
         }));
 
         this.handleCleanStateChange(value);
