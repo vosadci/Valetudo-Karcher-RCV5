@@ -10,6 +10,94 @@ This directory does **not** cover rooting the robot itself — that's a
 separate, robot-specific exploit you need root SSH access from before
 starting here.
 
+## Disclaimer — read this first
+
+**Use everything here entirely at your own risk.** This is an unofficial,
+community effort. It is **not** affiliated with, endorsed by, or supported by
+Kärcher or Valetudo's maintainer. There is **no warranty** of any kind and no
+promise that any of it works on your robot.
+
+- **It can break, soft-brick, or permanently damage your robot.** You are
+  modifying a rooted device at a low level — writing certs into `/oem`,
+  patching boot scripts, redirecting the robot's cloud, and (optionally)
+  touching firmware. A mistake, a power loss at the wrong moment, a vendor
+  update, or a firmware mismatch can leave the robot unbootable or unusable.
+- **There is no confirmed way back to stock firmware.** Five independent reset
+  mechanisms (physical button, the app's factory reset, and others) have been
+  tested and **none revert firmware** — so if a firmware-level step goes
+  wrong, there may be no recovery path. The firmware-update tooling here is
+  **unfinished and untested**; treat it as reference only.
+- **Rooting and running custom software almost certainly voids your warranty**
+  and may violate the device's terms of use. That's your call to make.
+- This tooling targets exactly one firmware (`I3.12.90`) and one model. On
+  anything else it will refuse to run or misbehave silently.
+- Back up the irreplaceable files (see "Irreplaceable files" below) before you
+  start, and keep them safe — after a `/userdata` wipe they are the only
+  record of the robot's pre-Valetudo state.
+
+If you are not comfortable recovering a robot over a serial console or USB
+when something goes wrong, stop here.
+
+## Security — this robot is wide open, by design and otherwise
+
+A rooted RCV5 running this tooling has **several unauthenticated attack
+surfaces on the local network**. Assume that anyone with access to the robot's
+LAN (or Wi-Fi) can take it over completely. Treat the robot's network as
+trusted, keep it off guest/IoT-hostile networks you don't control, and enable
+every mitigation below.
+
+- **Unauthenticated root ADB over the LAN (port 5555) and USB.** Once the
+  device is rooted (`/userdata/debug_mode` present), `adbd` runs with **no
+  authentication** — no RSA pairing, no password. It is reachable both over the
+  internal USB-OTG port **and over the network on TCP port 5555** (confirmed),
+  so anyone on the LAN can `adb connect <robot-ip>:5555` and get a **root
+  shell**. On a rooted unit, LAN access ≈ full root. There is no built-in way
+  to firewall it (the kernel has no netfilter).
+- **Root SSH with a default, well-known password.** `sshd` is gated by the same
+  `debug_mode` flag and accepts the vendor's **default root password**, which
+  is public. `/root` is read-only squashfs, so you can't add key-only auth or
+  change the password there. Anyone on the LAN who knows the default password
+  has a root shell.
+- **Valetudo's web UI has no authentication by default.** Until you turn it on
+  (Settings → … → turn on basic auth), anyone on the LAN can open
+  `http://<ROBOT_IP>` and fully control the robot. **Enable it.** Note it is
+  only HTTP basic auth, and CSRF/Host-header protections are minimal.
+- **The web UI's HTTPS option uses a self-signed cert.** The opt-in HTTPS quirk
+  (port 8443) encrypts traffic — most usefully the basic-auth password — but
+  the cert is self-signed, so it gives **privacy, not a verified identity**
+  (the browser warns once; you can't tell a MITM from the real robot by the
+  cert alone). Plain HTTP on port 80 stays open alongside it.
+- **The camera stream is open to the whole LAN while it runs.** When the camera
+  is on and someone is watching, the demo encoder's RTSP server on port 554
+  listens on every interface with **no login**, and there's no firewall to
+  close it. Keep the camera quirk off when not in use. See "The Kärcher UI"
+  below for detail.
+- **The Wi-Fi onboarding AP is open (no password).** The two-top-buttons flow
+  brings up an **open** access point for ~10 minutes; anyone nearby can join it
+  and reconfigure the robot's Wi-Fi during that window. See "Configuring Wi-Fi
+  via the robot's own AP" below.
+- **Rooting persists until you remove it — a reset won't.** `debug_mode` (and
+  therefore ADB/SSH) survives every reset mechanism tested, so it does **not**
+  clear itself. You *can* un-root deliberately: `./uninstall.sh <robot-ip>
+  --purge` to revert this tooling, then delete `/userdata/debug_mode`
+  (`ssh root@<robot-ip> rm -f /userdata/debug_mode`) and reboot — `adbd`/`sshd`
+  then no longer start, closing the root-ADB and root-SSH surfaces. (This is
+  separate from the robot's *firmware*, which has no confirmed revert path — see
+  the disclaimer.)
+- **Extra vendor hosts are blackholed, but only the ones we've found.** In
+  valetudo mode `karcher-cloud-switch.sh` also points the robot's other known
+  cloud hosts (`das`/`log.3irobotics.net`, `ota` + the firmware CDNs) at
+  loopback, on top of the main dummycloud redirect — so `RobotApp`'s own cloud
+  contact is covered too, not just `aiot_client`'s. The residual caveat is only
+  that this is a hand-built list from binary strings: a hostname not yet
+  enumerated wouldn't be blocked. See "Known limitations" below.
+
+**Minimum hardening:** enable Valetudo basic auth, turn on the HTTPS quirk,
+keep the camera off unless you're using it, remove `/userdata/debug_mode` if
+you don't need ADB/SSH (this closes the root-ADB-over-LAN and root-SSH surfaces
+— re-create it when you need them back), and run the robot only on a network
+you control.
+
 ## Prerequisites
 
 - **Root SSH access to the robot**, obtained separately (out of scope of
@@ -757,16 +845,17 @@ script).
   guard would start overwriting our `auto_reboot.sh` on every boot. No
   runtime self-check is built for this — moot as long as no vendor OTA is
   ever applied to a rooted unit.
-- **`RobotApp` may have its own, separate cloud contact the boot-time gate
-  doesn't cover.** The gate above (`aiot-gate.sh patch`) only holds back
-  `aiot_client`. `RobotApp`'s own binary contains hardcoded hostnames
-  `das.3irobotics.net` / `log.3irobotics.net` / `ota.3irobotics.net` —
-  note **`3irobotiCs`**, a different domain from the `3irobotiX` one our
-  `/etc/hosts` redirect and the boot-time gate both target. If `RobotApp`
-  ever resolves/contacts these independently, neither mitigation covers
-  it. Static finding only (binary strings), not confirmed reachable or
-  exercised — no fix attempted here without a live capture confirming
-  it's real traffic, not just unreferenced strings.
+- **`RobotApp`'s own cloud hosts are blackholed, but the list is hand-built.**
+  `RobotApp` has its own cloud contact, separate from `aiot_client` (which the
+  boot-time `aiot-gate.sh` gate holds back): hardcoded hosts including
+  `das.3irobotics.net` / `log.3irobotics.net` (note **`3irobotiCs`**, a
+  different domain from the `3irobotiX` one the main redirect targets) plus
+  `ota.3irobotix.net` and the firmware CDNs. These **are** covered — in valetudo
+  mode `karcher-cloud-switch.sh` points all of them at loopback (`BLOCK_HOSTS`,
+  live-confirmed). The remaining limitation is only that this list was built by
+  grepping the binaries' strings and `sysConfig.ini`: a hostname that exists but
+  wasn't enumerated would slip through. Re-grep the firmware if you want to be
+  thorough.
 
 - **The camera's RTSP port is open to the network while it runs.** See "The Kärcher UI" above.
   The demo encoder binds port 554 on all interfaces with no authentication, and the robot's
