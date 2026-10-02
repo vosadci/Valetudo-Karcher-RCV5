@@ -111,7 +111,7 @@ const NavSheet = (props: NavSheetProps): React.ReactElement => {
     }
 
     const fill = page?.layout === "fill";
-    const canGoBack = page !== undefined || section !== undefined;
+    const canGoBack = page !== undefined ? page.standalone !== true : section !== undefined;
 
     return (
         <Drawer

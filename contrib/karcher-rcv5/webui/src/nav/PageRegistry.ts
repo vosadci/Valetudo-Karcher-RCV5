@@ -66,14 +66,16 @@ export interface PageDef {
     // Map pages size themselves to their container's height instead of scrolling with the sheet.
     layout?: "fill",
     // Camera and Spectator are additionally hidden unless duststreaming is switched on.
-    needsDuststreamEnabled?: boolean
+    needsDuststreamEnabled?: boolean,
+    // Opened from the action bar, not the menu, so the sheet has no Back button.
+    standalone?: boolean
 }
 
 // Keys are the route paths Valetudo's own router uses, so the `url` props of the reused
 // list-menu links can be used as keys without any translation.
 export const PAGE_REGISTRY: Record<string, PageDef> = {
     // Not in any section: opened from the action bar.
-    "/cleaning_options": {title: "Cleaning options", component: CleaningOptions},
+    "/cleaning_options": {title: "Cleaning options", component: CleaningOptions, standalone: true},
     "/karcher/maps": {title: "Saved maps", component: MapsPage},
     "/karcher/camera": {
         title: "Camera",
