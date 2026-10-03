@@ -111,6 +111,19 @@ describe("KaercherTotalStatisticsCapability", () => {
             });
         });
 
+        it("handleCleanRecordEvent doesn't re-save an identical resend", () => {
+            const capability = buildCapability();
+            let saves = 0;
+            capability.saveRecords = () => {
+                saves++;
+            };
+
+            capability.handleCleanRecordEvent({record_start_time: 1700000000, record_use_time: 600, record_clean_area: 1000});
+            capability.handleCleanRecordEvent({record_start_time: 1700000000, record_use_time: 600, record_clean_area: 1000});
+
+            assert.strictEqual(saves, 1);
+        });
+
         it("handleCleanRecordEvent ignores an unparseable event", () => {
             const capability = buildCapability();
 

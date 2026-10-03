@@ -43,7 +43,10 @@
 set -eu
 
 HOSTS_BACKUP="/userdata/etc-hosts.orig"
-HOSTS_VALETUDO="/userdata/etc-hosts.valetudo"
+# tmpfs, not /userdata: rebuilt on every switch and only ever used as the
+# bind-mount source, so keeping it on flash just costs a write per boot.
+HOSTS_VALETUDO="/tmp/etc-hosts.valetudo"
+GDROOT_VALETUDO="/tmp/gdroot-g2.crt.valetudo"
 CERT_BACKUP="/userdata/server.crt.orig"
 CERT_TARGET_OEM="/oem/sysconf/server.crt"
 CERT_TARGET_USERDATA="/userdata/config/server.crt"
@@ -260,6 +263,12 @@ require_oem_writable() {
     exit 1
 }
 
+# /oem and /userdata are both non-replaceable flash, and boot-hook.sh re-runs
+# the valetudo switch on every boot with identical content.
+copy_if_changed() {  # $1=src $2=dst
+    cmp -s "$1" "$2" || cp "$1" "$2"
+}
+
 ensure_backups() {
     if [ ! -f "$HOSTS_BACKUP" ]; then
         cp /etc/hosts "$HOSTS_BACKUP"
@@ -279,6 +288,7 @@ ensure_backups() {
 # the switch itself already happened and was verified; losing the cached
 # record of that is a warning, not a failure.
 persist_mode() {
+    [ "$(cat "$MODE_FILE" 2>/dev/null)" = "$1" ] && return 0
     mkdir -p "$(dirname "$MODE_FILE")" 2>/dev/null || true
     printf '%s' "$1" > "$MODE_FILE.tmp" && mv "$MODE_FILE.tmp" "$MODE_FILE" \
         || echo "WARNING: switch succeeded but mode was NOT persisted to $MODE_FILE — next boot will use the previous mode" >&2
@@ -298,8 +308,8 @@ mode_cloud() {
     switch_hosts "$HOSTS_BACKUP"
 
     if oem_writable; then
-        cp "$CERT_BACKUP" "$CERT_TARGET_OEM"
-        cp "$GDROOT_BACKUP" "$GDROOT_TARGET"
+        copy_if_changed "$CERT_BACKUP" "$CERT_TARGET_OEM"
+        copy_if_changed "$GDROOT_BACKUP" "$GDROOT_TARGET"
     elif ! cmp -s "$CERT_BACKUP" "$CERT_TARGET_OEM" || ! cmp -s "$GDROOT_BACKUP" "$GDROOT_TARGET"; then
         # /oem has no third state (see aiot-gate.sh): read-only means it's
         # already the pristine stock partition. If it doesn't already match
@@ -312,7 +322,7 @@ mode_cloud() {
         echo "/oem is already read-only and matches the backup — nothing to write there."
     fi
 
-    cp "$CERT_BACKUP" "$CERT_TARGET_USERDATA"
+    copy_if_changed "$CERT_BACKUP" "$CERT_TARGET_USERDATA"
 
     verify_hosts "$HOSTS_BACKUP"
     verify_cert "$CERT_BACKUP"
@@ -343,12 +353,13 @@ mode_valetudo() {
     done
 
     switch_hosts "$HOSTS_VALETUDO"
-    cp "$CERT_VALETUDO" "$CERT_TARGET_OEM"
-    cp "$CERT_VALETUDO" "$CERT_TARGET_USERDATA"
+    copy_if_changed "$CERT_VALETUDO" "$CERT_TARGET_OEM"
+    copy_if_changed "$CERT_VALETUDO" "$CERT_TARGET_USERDATA"
     # Rebuilt from the untouched backup + dev cert every time, rather than
     # appended incrementally, so repeated toggling never accumulates duplicate
     # entries in the CA bundle.
-    cat "$GDROOT_BACKUP" "$CERT_VALETUDO" > "$GDROOT_TARGET"
+    cat "$GDROOT_BACKUP" "$CERT_VALETUDO" > "$GDROOT_VALETUDO"
+    copy_if_changed "$GDROOT_VALETUDO" "$GDROOT_TARGET"
 
     verify_hosts "$HOSTS_VALETUDO"
     verify_cert "$CERT_VALETUDO"

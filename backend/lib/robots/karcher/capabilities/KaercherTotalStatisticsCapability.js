@@ -80,7 +80,14 @@ class KaercherTotalStatisticsCapability extends TotalStatisticsCapability {
             return;
         }
 
-        this.records[String(record.start)] = record;
+        const key = String(record.start);
+
+        // A resend of an identical record shouldn't cost a flash write
+        if (JSON.stringify(this.records[key]) === JSON.stringify(record)) {
+            return;
+        }
+
+        this.records[key] = record;
         this.saveRecords();
     }
 
@@ -105,7 +112,9 @@ class KaercherTotalStatisticsCapability extends TotalStatisticsCapability {
     saveRecords() {
         try {
             fs.mkdirSync(path.dirname(KaercherTotalStatisticsCapability.RECORDS_PATH), {recursive: true});
-            fs.writeFileSync(KaercherTotalStatisticsCapability.RECORDS_PATH, JSON.stringify(this.records));
+            // Write-then-rename so a power cut can't truncate the whole history
+            fs.writeFileSync(KaercherTotalStatisticsCapability.RECORDS_PATH + ".tmp", JSON.stringify(this.records));
+            fs.renameSync(KaercherTotalStatisticsCapability.RECORDS_PATH + ".tmp", KaercherTotalStatisticsCapability.RECORDS_PATH);
         } catch (e) {
             Logger.warn("KaercherTotalStatisticsCapability: failed to persist clean records", e);
         }

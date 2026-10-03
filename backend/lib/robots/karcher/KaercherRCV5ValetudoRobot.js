@@ -347,17 +347,24 @@ class KaercherRCV5ValetudoRobot extends ValetudoRobot {
      * and hasAutoEmptyDock are learned independently, at different times, and
      * neither should wipe the other out.
      *
+     * Skips the write when nothing changed (the robot re-sends the same sn/mac on
+     * every login, and /userdata is non-replaceable flash), and writes via
+     * rename so a power cut can't truncate the file and lose the mac.
+     *
      * @protected
      * @param {object} patch
      */
     persistDeviceState(patch) {
         try {
             const current = this.readKnownIdentity();
+            const next = JSON.stringify(Object.assign({}, current, patch));
 
-            fs.writeFileSync(
-                KaercherRCV5ValetudoRobot.IDENTITY_PATH,
-                JSON.stringify(Object.assign({}, current, patch))
-            );
+            if (next === JSON.stringify(current)) {
+                return;
+            }
+
+            fs.writeFileSync(KaercherRCV5ValetudoRobot.IDENTITY_PATH + ".tmp", next);
+            fs.renameSync(KaercherRCV5ValetudoRobot.IDENTITY_PATH + ".tmp", KaercherRCV5ValetudoRobot.IDENTITY_PATH);
         } catch (e) {
             Logger.warn("KaercherRCV5ValetudoRobot: failed to persist device state", e);
         }

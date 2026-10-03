@@ -445,6 +445,29 @@ describe("KaercherRCV5ValetudoRobot", () => {
 
             assert.deepStrictEqual(robot.readKnownIdentity(), {sn: "SG12345678", mac: "AA:BB:CC:DD:EE:FF"});
         });
+
+        it("persistIdentity skips the write when sn/mac are unchanged", () => {
+            KaercherRCV5ValetudoRobot.IDENTITY_PATH = scratchPath;
+            const robot = buildRobot();
+
+            robot.persistIdentity("SG12345678", "AA:BB:CC:DD:EE:FF");
+            const inode = fs.statSync(scratchPath).ino;
+            robot.persistIdentity("SG12345678", "AA:BB:CC:DD:EE:FF");
+
+            // Every real write renames a fresh file into place, so an unchanged inode means no write
+            assert.strictEqual(fs.statSync(scratchPath).ino, inode);
+            assert.strictEqual(fs.existsSync(scratchPath + ".tmp"), false);
+        });
+
+        it("persistIdentity keeps other fields when sn/mac change", () => {
+            KaercherRCV5ValetudoRobot.IDENTITY_PATH = scratchPath;
+            fs.writeFileSync(scratchPath, JSON.stringify({sn: "SG-OLD", mac: "AA:BB:CC:DD:EE:FF", cameraEnabled: true}));
+            const robot = buildRobot();
+
+            robot.persistIdentity("SG-NEW", "AA:BB:CC:DD:EE:FF");
+
+            assert.deepStrictEqual(robot.readKnownIdentity(), {sn: "SG-NEW", mac: "AA:BB:CC:DD:EE:FF", cameraEnabled: true});
+        });
     });
 
     describe("getProperties", () => {
