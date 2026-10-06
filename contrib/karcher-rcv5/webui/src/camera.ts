@@ -72,5 +72,5 @@ export const useCameraStream = (
         };
     }, [videoRef, attempt]);
 
-    return {status, message};
+    return {status: status, message: message};
 };

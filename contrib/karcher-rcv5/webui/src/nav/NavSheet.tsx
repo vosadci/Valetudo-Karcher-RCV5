@@ -84,33 +84,34 @@ const NavSheet = (props: NavSheetProps): React.ReactElement => {
         // Laid out like the entries in Valetudo's own drawer (ValetudoAppBar.tsx)
         body = (
             <>
-            <List sx={{userSelect: "none"}}>
-                {Object.entries(SECTIONS).filter(([key]) => isSectionVisible(key)).map(([key, def]) => {
-                    const Icon = def.icon;
+                <List sx={{userSelect: "none"}}>
+                    {Object.entries(SECTIONS).filter(([key]) => isSectionVisible(key)).map(([key, def]) => {
+                        const Icon = def.icon;
 
-                    return (
-                        <ListItemButton key={key} onClick={() => {
-                            if (def.page !== undefined) {
-                                onSelectPage(def.page);
-                            } else {
-                                onSelectSection(key);
-                            }
-                        }}>
-                            <ListItemIcon>
-                                <Icon/>
-                            </ListItemIcon>
-                            <ListItemText primary={def.title}/>
-                            <ArrowIcon fontSize="small"/>
-                        </ListItemButton>
-                    );
-                })}
-            </List>
-            <MenuFooter paletteMode={paletteMode} setPaletteMode={setPaletteMode}/>
+                        return (
+                            <ListItemButton key={key} onClick={() => {
+                                if (def.page !== undefined) {
+                                    onSelectPage(def.page);
+                                } else {
+                                    onSelectSection(key);
+                                }
+                            }}>
+                                <ListItemIcon>
+                                    <Icon/>
+                                </ListItemIcon>
+                                <ListItemText primary={def.title}/>
+                                <ArrowIcon fontSize="small"/>
+                            </ListItemButton>
+                        );
+                    })}
+                </List>
+                <MenuFooter paletteMode={paletteMode} setPaletteMode={setPaletteMode}/>
             </>
         );
     }
 
     const fill = page?.layout === "fill";
+    const pinBottom = page?.pinBottom === true;
     const canGoBack = page !== undefined ? page.standalone !== true : section !== undefined;
 
     return (
@@ -121,8 +122,8 @@ const NavSheet = (props: NavSheetProps): React.ReactElement => {
             slotProps={{
                 paper: {
                     sx: {
-                        height: "78%",
-                        maxHeight: "78%",
+                        height: "90%",
+                        maxHeight: "90%",
                         borderRadius: "22px 22px 0 0",
                         display: "flex",
                         flexDirection: "column",
@@ -144,8 +145,16 @@ const NavSheet = (props: NavSheetProps): React.ReactElement => {
                     <CloseIcon/>
                 </IconButton>
             </Box>
-            <Box sx={{flex: 1, minHeight: 0, overflowY: fill ? "hidden" : "auto", padding: fill ? 0 : "0 0 24px 0"}}>
-                <Box sx={{height: fill ? "100%" : undefined, display: fill ? "flex" : undefined, flexDirection: "column"}}>
+            {/* pinBottom: column-reverse makes the scroll start at the bottom, so the most-used controls stay in view */}
+            <Box sx={{
+                flex: 1,
+                minHeight: 0,
+                overflowY: fill ? "hidden" : "auto",
+                padding: fill ? 0 : "0 0 24px 0",
+                display: pinBottom ? "flex" : undefined,
+                flexDirection: pinBottom ? "column-reverse" : undefined,
+            }}>
+                <Box sx={{height: fill ? "100%" : undefined, display: fill ? "flex" : undefined, flexDirection: "column", flexShrink: 0}}>
                     {body}
                 </Box>
             </Box>

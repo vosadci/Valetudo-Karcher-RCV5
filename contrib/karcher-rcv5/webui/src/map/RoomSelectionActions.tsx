@@ -22,7 +22,7 @@ const RoomSelectionActions = (props: {segments: string[], onClear(): void}): Rea
     const customOrder = mapSegmentationProperties?.customOrderSupport ?? false;
 
     React.useEffect(() => {
-        setTarget({kind: "rooms", segments, customOrder, iterations, clear: onClear});
+        setTarget({kind: "rooms", segments: segments, customOrder: customOrder, iterations: iterations, clear: onClear});
     }, [segments, customOrder, iterations, onClear, setTarget]);
 
     React.useEffect(() => {

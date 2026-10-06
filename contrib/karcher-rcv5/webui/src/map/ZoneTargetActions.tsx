@@ -29,8 +29,8 @@ const ZoneTargetActions = (props: {
     const [iterations, setIterations] = React.useState(1);
 
     // Read through refs: LiveMap passes new closures on every render
-    const latest = React.useRef({zones, convertPixelCoordinatesToCMSpace, onAdd});
-    latest.current = {zones, convertPixelCoordinatesToCMSpace, onAdd};
+    const latest = React.useRef({zones: zones, convertPixelCoordinatesToCMSpace: convertPixelCoordinatesToCMSpace, onAdd: onAdd});
+    latest.current = {zones: zones, convertPixelCoordinatesToCMSpace: convertPixelCoordinatesToCMSpace, onAdd: onAdd};
 
     // Switching modes makes the map re-render its layer image in a background worker, and the layer
     // is blank until that finishes. Adding the zone draws the map right away, which would show that
@@ -65,7 +65,7 @@ const ZoneTargetActions = (props: {
             });
         };
 
-        setTarget({kind: "zone", zoneCount: zones.length, getZones, iterations});
+        setTarget({kind: "zone", zoneCount: zones.length, getZones: getZones, iterations: iterations});
     }, [zones.length, iterations, setTarget]);
 
     React.useEffect(() => {

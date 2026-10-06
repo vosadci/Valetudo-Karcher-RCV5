@@ -12,7 +12,7 @@ export const useCleanTarget = create<{target: CleanTarget | null, setTarget: (ta
     return {
         target: null,
         setTarget: (target) => {
-            set({target});
+            set({target: target});
         },
     };
 });

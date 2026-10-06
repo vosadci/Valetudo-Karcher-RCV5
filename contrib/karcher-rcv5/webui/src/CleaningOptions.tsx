@@ -158,6 +158,7 @@ const CleaningPresets = (props: {mode: boolean, fan: boolean, water: boolean}): 
 
 // Valetudo's ControlsBody minus BasicControls and RobotStatus, which the shell's action bar and
 // header already cover. Same per-panel gating as ControlsBody.
+// Sections run bottom-up: statistics first, the cleaning modes last, next to the action bar.
 const CleaningOptions = (): React.ReactElement => {
     const [
         fanSpeed,
@@ -179,22 +180,19 @@ const CleaningOptions = (): React.ReactElement => {
 
     const {data: robotInformation} = useRobotInformationQuery();
 
+    const sections = [
+        (operationMode || fanSpeed || waterControl) && (
+            <CleaningPresets key="presets" mode={operationMode} fan={fanSpeed} water={waterControl}/>
+        ),
+        (triggerEmptySupported || mopDockCleanTriggerSupported || mopDockDryTriggerSupported) && <Dock key="dock"/>,
+        robotInformation && robotInformation.modelDetails.supportedAttachments.length > 0 && <Attachments key="attachments"/>,
+        currentStatistics && <CurrentStatistics key="statistics"/>,
+    ];
+
     return (
         <Box sx={{padding: 1.5}}>
             <Grid2 container spacing={1.5} direction="column" sx={{userSelect: "none"}}>
-                {(operationMode || fanSpeed || waterControl) && (
-                    <CleaningPresets mode={operationMode} fan={fanSpeed} water={waterControl}/>
-                )}
-
-                {(triggerEmptySupported || mopDockCleanTriggerSupported || mopDockDryTriggerSupported) && <Dock/>}
-
-                {
-                    robotInformation &&
-                    robotInformation.modelDetails.supportedAttachments.length > 0 &&
-                    <Attachments/>
-                }
-
-                {currentStatistics && <CurrentStatistics/>}
+                {sections.reverse()}
             </Grid2>
         </Box>
     );
