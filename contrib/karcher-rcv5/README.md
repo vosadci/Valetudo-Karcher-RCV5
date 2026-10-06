@@ -22,11 +22,18 @@ promise that any of it works on your robot.
   patching boot scripts, redirecting the robot's cloud, and (optionally)
   touching firmware. A mistake, a power loss at the wrong moment, a vendor
   update, or a firmware mismatch can leave the robot unbootable or unusable.
-- **There is no confirmed way back to stock firmware.** Five independent reset
-  mechanisms (physical button, the app's factory reset, and others) have been
-  tested and **none revert firmware** — so if a firmware-level step goes
-  wrong, there may be no recovery path. The firmware-update tooling here is
-  **unfinished and untested**; treat it as reference only.
+- **There is no confirmed way back to stock firmware.** The robot has an A/B
+  slot layout (`system_a`/`system_b`) — the recessed button's long-hold can
+  switch slots, and that's a real firmware change, but it only *surfaces*
+  whatever happens to already be sitting in the other slot. There's no
+  separate protected/golden copy, and ordinary vendor OTAs freely overwrite
+  either slot. On a robot that's been updated more than once, both slots are
+  typically already the same (current) build, so the switch is a no-op. The
+  other four reset mechanisms (app factory reset, "privacy/withdraw consent",
+  both-buttons, "reset and remove robot") never touch firmware at all — only
+  `/userdata/config|log|cfg`. See "Disaster recovery" below for how to check
+  each slot's build before relying on this. The firmware-update tooling here
+  is **unfinished and untested**; treat it as reference only.
 - **Rooting and running custom software almost certainly voids your warranty**
   and may violate the device's terms of use. That's your call to make.
 - This tooling targets exactly one firmware (`I3.12.90`) and one model. On
@@ -84,19 +91,28 @@ every mitigation below.
   then no longer start, closing the root-ADB and root-SSH surfaces. (This is
   separate from the robot's *firmware*, which has no confirmed revert path — see
   the disclaimer.)
-- **Extra vendor hosts are blackholed, but only the ones we've found.** In
-  valetudo mode `karcher-cloud-switch.sh` also points the robot's other known
-  cloud hosts (`das`/`log.3irobotics.net`, `ota` + the firmware CDNs) at
-  loopback, on top of the main dummycloud redirect — so `RobotApp`'s own cloud
-  contact is covered too, not just `aiot_client`'s. The residual caveat is only
-  that this is a hand-built list from binary strings: a hostname not yet
-  enumerated wouldn't be blocked. See "Known limitations" below.
+- **The hosts-file block is not enough on its own. Block the robot's internet
+  access on your router.** In valetudo mode `karcher-cloud-switch.sh` points the
+  robot's known cloud hosts at loopback, on top of the main dummycloud redirect.
+  That list is hand-built, and it has already missed something real: until
+  2026-10-03, `log-server` kept uploading device logs and raw SLAM map data to
+  Alibaba Cloud in Shenzhen (`aiot-devlog-prod.oss-cn-shenzhen.aliyuncs.com`)
+  in valetudo mode, using an access key built into the firmware. That host is
+  blocked now. The binaries also contain hardcoded IP addresses, which no hosts
+  file can stop, and the kernel has no firewall. Valetudo needs no internet, so
+  give the robot LAN-only access on your router. **Before you do, set Valetudo's
+  NTP server to the IP address of an NTP server on your LAN.** `aiot_client` won't
+  connect to Valetudo until its own time check succeeds, and that check uses
+  hardcoded internet NTP hosts. `karcher-cloud-switch.sh valetudo` points them at
+  Valetudo's NTP server, but only when it's set as an IP address. Without this, a
+  WAN block leaves Valetudo with no map, no settings and `cannot publish, no MQTT
+  client connected` errors. See "Known limitations" below.
 
 **Minimum hardening:** enable Valetudo basic auth, turn on the HTTPS quirk,
 keep the camera off unless you're using it, remove `/userdata/debug_mode` if
 you don't need ADB/SSH (this closes the root-ADB-over-LAN and root-SSH surfaces
 — re-create it when you need them back), and run the robot only on a network
-you control.
+you control. On that network, block the robot from the internet entirely.
 
 ## Prerequisites
 
@@ -487,6 +503,65 @@ From `contrib/karcher-rcv5/`:
 ./activate.sh <robot-ip>
 ```
 
+### Firmware A/B slots — what's actually recoverable
+
+Live-verified partition table (`cat /proc/mtd`): `vnvm` (1MB), `uboot` (5MB,
+**single, not A/B**), `boot_a`/`boot_b` (**10MB each**, kernel+DT), `misc` (0.5MB),
+`system_a`/`system_b` (**100MB each**, rootfs), `robotconf` (20MB), `userdata`
+(232MB), `reserve` (30MB). **There is no separate recovery/golden partition** —
+`/oem` is just a directory inside whichever rootfs squashfs (`system_a` or
+`system_b`) is currently active, not its own partition.
+
+This is a standard Rockchip A/B layout: `/usr/bin/updateEngine` reads/writes slot
+metadata in the `misc` partition (`--misc=now` reconfirms the current slot,
+`--misc=other` switches to the inactive one). `boot_*` and `system_*` are two
+independent A/B pairs, but they share **one** slot pointer and always switch
+together — an OTA always writes both halves of the slot you're **not** currently
+running, then boots it. `uboot` itself has no A/B fallback at all. The recessed
+reset button's long-hold (~11s+) also calls `--misc=other` — a real slot switch,
+not just a config wipe.
+
+**What the ~100MB OTA image actually contains** (`Kaercher_RCV5_EU-I3.12.90.img`,
+parsed directly): an outer RKFW header + embedded MiniLoaderAll.bin (~246KB,
+maskrom-stage bootloader), then an RKAF container (magic at `0x3d9b4`) whose
+4-entry manifest lists `parameter.txt`, `uboot.img`, `boot.img`, and `rootfs.img`.
+The squashfs superblock for `rootfs.img` reports a filesystem size of
+**89,505,904 bytes** — this one file is ~85% of the whole package; the rest is the
+bootloader/kernel pieces and small headers. It's plain RKAF, readable with
+`strings`/hexdump — no real encryption despite `upgrade`'s "custom container"
+parsing logic, which is just this format's own hash/manifest handling.
+
+**The catch: switching slots only surfaces whatever happens to already be in the
+other slot.** There's no protected stock copy. Two (or more) ordinary OTAs can — and
+on a well-used robot, will — leave both slots on the same current build, at which
+point the button/switch is a no-op. Check before relying on it:
+
+```sh
+# which slot is active, and its reported version
+cat /proc/cmdline | tr ' ' '\n' | grep ubi.mtd=   # e.g. ubi.mtd=6 -> system_b -> mtd6
+cat /oem/sysconf/sysVersion.ini
+
+# compare the two slots' rootfs WITHOUT booting either (read-only; mtd5=system_a here)
+ubiattach /dev/ubi_ctrl -m 5 -d 5 && ubiblock --create /dev/ubi5_0
+md5sum /dev/ubiblock0_0 /dev/ubiblock5_0      # ubiblock0_0 = active root
+# equal md5 => both slots already the same build, switching won't recover anything
+umount /tmp/sa 2>/dev/null; ubiblock --remove /dev/ubi5_0; ubidetach -m 5
+
+# or just read the inactive slot's version directly:
+mkdir -p /tmp/sa && mount -t squashfs -o ro /dev/ubiblock5_0 /tmp/sa
+cat /tmp/sa/oem/sysconf/sysVersion.ini
+umount /tmp/sa
+```
+
+Dump a slot without mounting it at all (strictly read-only, safe to pipe off-device):
+`nanddump --omitoob -f - /dev/mtd5 | ssh <mac> 'cat > system_a.ubi'` (`mtd2`/`mtd3` for
+the much smaller `boot_a`/`boot_b`, whose U-Boot FIT `/timestamp` is a quick way to
+date-fingerprint a build without extracting the rootfs at all).
+
+**If both slots already match, there's no on-device path back to an older build** —
+only an off-device image (if you have one) reflashed via maskrom + `rkdeveloptool`
+gets you there, and that's unexplored/untested by this project.
+
 ## Updating firmware
 
 > **Not finished, not tested. For information only. Use at your own risk.**
@@ -859,17 +934,35 @@ script).
   guard would start overwriting our `auto_reboot.sh` on every boot. No
   runtime self-check is built for this — moot as long as no vendor OTA is
   ever applied to a rooted unit.
-- **`RobotApp`'s own cloud hosts are blackholed, but the list is hand-built.**
-  `RobotApp` has its own cloud contact, separate from `aiot_client` (which the
-  boot-time `aiot-gate.sh` gate holds back): hardcoded hosts including
-  `das.3irobotics.net` / `log.3irobotics.net` (note **`3irobotiCs`**, a
-  different domain from the `3irobotiX` one the main redirect targets) plus
-  `ota.3irobotix.net` and the firmware CDNs. These **are** covered — in valetudo
-  mode `karcher-cloud-switch.sh` points all of them at loopback (`BLOCK_HOSTS`,
-  live-confirmed). The remaining limitation is only that this list was built by
-  grepping the binaries' strings and `sysConfig.ini`: a hostname that exists but
-  wasn't enumerated would slip through. Re-grep the firmware if you want to be
-  thorough.
+- **The hosts-file block can't stop everything. Block WAN on the router.**
+  `RobotApp` and `log-server` have their own cloud contact, separate from
+  `aiot_client` (which the boot-time `aiot-gate.sh` gate holds back). In
+  valetudo mode `karcher-cloud-switch.sh` points these hosts at loopback
+  (`BLOCK_HOSTS`):
+  - `das.3irobotics.net`, `log.3irobotics.net` and `ota.3irobotics.net`. Note
+    **`3irobotiCs`**, a different domain from the `3irobotiX` one the main
+    redirect targets.
+  - `ota.3irobotix.net` and the firmware CDNs.
+  - `aiot-devlog-prod.oss-cn-shenzhen.aliyuncs.com`. This one was missing
+    until 2026-10-03, and a live check that day caught `log-server` uploading to
+    it in valetudo mode: 110 uploads, about 24 MB in 20 hours. The uploads
+    included device logs, the cloud bridge's logs, AI-server logs, raw SLAM map
+    data (`relo_globalSlam.rawlog`) and map scheme files. `log-server` signs
+    these uploads with an Alibaba key built into the binary, so it needs no
+    vendor cloud at all.
+
+  Two gaps remain:
+  - The list was built by grepping the binaries' strings, so a host that wasn't
+    enumerated would slip through.
+  - The binaries hardcode IP addresses that bypass DNS entirely: `aiot_client`
+    (`203.107.1.x`, `8.219.58.10`, `8.219.89.41`), `log-server`
+    (`120.78.95.51`) and the shipped-but-unlaunched `rtty` remote shell
+    (`39.108.250.100`).
+
+  The kernel has no netfilter, so the only full fix is on the network. Give the
+  robot LAN-only access on your router. First set Valetudo's NTP server to a LAN
+  NTP server's IP address, so `aiot_client`'s own time check still passes (see
+  above).
 
 - **The camera's RTSP port is open to the network while it runs.** See "The Kärcher UI" above.
   The demo encoder binds port 554 on all interfaces with no authentication, and the robot's

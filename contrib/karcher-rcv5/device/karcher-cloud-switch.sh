@@ -43,7 +43,10 @@
 set -eu
 
 HOSTS_BACKUP="/userdata/etc-hosts.orig"
-HOSTS_VALETUDO="/userdata/etc-hosts.valetudo"
+# tmpfs, not /userdata: rebuilt on every switch and only ever used as the
+# bind-mount source, so keeping it on flash just costs a write per boot.
+HOSTS_VALETUDO="/tmp/etc-hosts.valetudo"
+GDROOT_VALETUDO="/tmp/gdroot-g2.crt.valetudo"
 CERT_BACKUP="/userdata/server.crt.orig"
 CERT_TARGET_OEM="/oem/sysconf/server.crt"
 CERT_TARGET_USERDATA="/userdata/config/server.crt"
@@ -77,13 +80,39 @@ WIFI_CONF="/userdata/config/wifi.conf"
 #                                 generic SDK boilerplate; not confirmed as actually dialed, but
 #                                 a real, live-resolving host, so blocked rather than assumed dead.
 #   - test-devlog.3irobotix.net -- log-server's own devlog target string.
+#   - aiot-devlog-prod.oss-cn-shenzhen.aliyuncs.com -- Alibaba OSS bucket log-server PUTs
+#                                 devlogs to (logs, client_file.log, ai-server logs,
+#                                 relo_globalSlam.rawlog, SchemeFile), signed with an OSS key
+#                                 hardcoded in log-server itself, so it needs no 3irobotix
+#                                 cloud at all. LIVE-CONFIRMED 2026-10-03 still uploading in
+#                                 valetudo mode: 110 uploads / ~24 MB in ~20h before this was added.
+#   - ota.3irobotics.net      -- "c" spelling, present in RobotApp + log-server alongside the
+#                                 ota.3irobotix.net above; not seen dialed, blocked anyway.
 # All confirmed as real, currently-resolving hostnames (not dead/unregistered domains) via `dig`.
+# NOT covered by /etc/hosts at all: IP literals in the binaries (aiot_client 203.107.1.x /
+# 8.219.58.10 / 8.219.89.41, log-server 120.78.95.51, rtty 39.108.250.100). The kernel has no
+# netfilter, so those can only be blocked on the network side (block the robot's WAN access).
 # Redirected to loopback, not VALETUDO_IP: nothing needs to answer for these, unlike
 # HOST_A/HOST_B which the dummycloud actively serves -- a refused/timed-out connection here IS
 # the desired outcome. Applied unconditionally in valetudo mode; mode_cloud's revert-from-backup
 # already removes these along with the HOST_A/HOST_B pair, since HOSTS_BACKUP never contained them.
-BLOCK_HOSTS="ota.3irobotix.net eu-cdnallaiot.3irobotix.net eu-cdnupdatepkgaiot.3irobotix.net log.3irobotics.net das.3irobotics.net test-devlog.3irobotix.net"
+BLOCK_HOSTS="ota.3irobotix.net eu-cdnallaiot.3irobotix.net eu-cdnupdatepkgaiot.3irobotix.net log.3irobotics.net das.3irobotics.net test-devlog.3irobotix.net aiot-devlog-prod.oss-cn-shenzhen.aliyuncs.com ota.3irobotics.net"
 BLOCK_IP="127.0.0.1"
+
+# aiot_client runs its own SNTP check against these hardcoded hosts (separate from the
+# system ntpd) and loops on "sync time now...." -- never logging in to the dummycloud --
+# until one answers. LIVE-CONFIRMED 2026-10-03: with the robot's WAN blocked at the router,
+# MQTT never connected and Valetudo couldn't send any command. So in valetudo mode they're
+# pointed at the NTP server Valetudo itself is configured with, but only when that's an
+# IPv4 literal (a LAN NTP server). With the default hostname, they're left alone.
+VALETUDO_CONFIG="/userdata/valetudo/config.json"
+AIOT_NTP_HOSTS="pool.ntp.org cn.pool.ntp.org cn.ntp.org.cn de.ntp.org.cn sgp.ntp.org.cn us.ntp.org.cn time.apple.com time.cloudflare.com time.windows.com time1.google.com"
+
+valetudo_ntp_ip() {
+    { tr -d ' \n' < "$VALETUDO_CONFIG"; } 2>/dev/null \
+        | sed -n 's/.*"ntpClient":{[^}]*"server":"\([0-9.]*\)".*/\1/p' \
+        | grep -E '^([0-9]{1,3}\.){3}[0-9]{1,3}$' || true
+}
 
 # HOST_A/HOST_B are read live from the robot's own wifi.conf rather than
 # hardcoded, because that's what they actually are: aiot_client's own
@@ -260,6 +289,12 @@ require_oem_writable() {
     exit 1
 }
 
+# /oem and /userdata are both non-replaceable flash, and boot-hook.sh re-runs
+# the valetudo switch on every boot with identical content.
+copy_if_changed() {  # $1=src $2=dst
+    cmp -s "$1" "$2" || cp "$1" "$2"
+}
+
 ensure_backups() {
     if [ ! -f "$HOSTS_BACKUP" ]; then
         cp /etc/hosts "$HOSTS_BACKUP"
@@ -279,6 +314,7 @@ ensure_backups() {
 # the switch itself already happened and was verified; losing the cached
 # record of that is a warning, not a failure.
 persist_mode() {
+    [ "$(cat "$MODE_FILE" 2>/dev/null)" = "$1" ] && return 0
     mkdir -p "$(dirname "$MODE_FILE")" 2>/dev/null || true
     printf '%s' "$1" > "$MODE_FILE.tmp" && mv "$MODE_FILE.tmp" "$MODE_FILE" \
         || echo "WARNING: switch succeeded but mode was NOT persisted to $MODE_FILE — next boot will use the previous mode" >&2
@@ -298,8 +334,8 @@ mode_cloud() {
     switch_hosts "$HOSTS_BACKUP"
 
     if oem_writable; then
-        cp "$CERT_BACKUP" "$CERT_TARGET_OEM"
-        cp "$GDROOT_BACKUP" "$GDROOT_TARGET"
+        copy_if_changed "$CERT_BACKUP" "$CERT_TARGET_OEM"
+        copy_if_changed "$GDROOT_BACKUP" "$GDROOT_TARGET"
     elif ! cmp -s "$CERT_BACKUP" "$CERT_TARGET_OEM" || ! cmp -s "$GDROOT_BACKUP" "$GDROOT_TARGET"; then
         # /oem has no third state (see aiot-gate.sh): read-only means it's
         # already the pristine stock partition. If it doesn't already match
@@ -312,7 +348,7 @@ mode_cloud() {
         echo "/oem is already read-only and matches the backup — nothing to write there."
     fi
 
-    cp "$CERT_BACKUP" "$CERT_TARGET_USERDATA"
+    copy_if_changed "$CERT_BACKUP" "$CERT_TARGET_USERDATA"
 
     verify_hosts "$HOSTS_BACKUP"
     verify_cert "$CERT_BACKUP"
@@ -341,14 +377,21 @@ mode_valetudo() {
     for h in $BLOCK_HOSTS; do
         printf '%s\t%s\n' "$BLOCK_IP" "$h" >> "$HOSTS_VALETUDO"
     done
+    NTP_IP="$(valetudo_ntp_ip)"
+    if [ -n "$NTP_IP" ]; then
+        for h in $AIOT_NTP_HOSTS; do
+            printf '%s\t%s\n' "$NTP_IP" "$h" >> "$HOSTS_VALETUDO"
+        done
+    fi
 
     switch_hosts "$HOSTS_VALETUDO"
-    cp "$CERT_VALETUDO" "$CERT_TARGET_OEM"
-    cp "$CERT_VALETUDO" "$CERT_TARGET_USERDATA"
+    copy_if_changed "$CERT_VALETUDO" "$CERT_TARGET_OEM"
+    copy_if_changed "$CERT_VALETUDO" "$CERT_TARGET_USERDATA"
     # Rebuilt from the untouched backup + dev cert every time, rather than
     # appended incrementally, so repeated toggling never accumulates duplicate
     # entries in the CA bundle.
-    cat "$GDROOT_BACKUP" "$CERT_VALETUDO" > "$GDROOT_TARGET"
+    cat "$GDROOT_BACKUP" "$CERT_VALETUDO" > "$GDROOT_VALETUDO"
+    copy_if_changed "$GDROOT_VALETUDO" "$GDROOT_TARGET"
 
     verify_hosts "$HOSTS_VALETUDO"
     verify_cert "$CERT_VALETUDO"
@@ -358,7 +401,7 @@ mode_valetudo() {
     restart_robotapp_stack
     verify_processes_restarted
 
-    echo "switched to: local Valetudo dummycloud ($VALETUDO_IP, verified), $(echo "$BLOCK_HOSTS" | wc -w) other cloud host(s) blackholed — undo with: $0 cloud"
+    echo "switched to: local Valetudo dummycloud ($VALETUDO_IP, verified), $(echo "$BLOCK_HOSTS" | wc -w) other cloud host(s) blackholed${NTP_IP:+, aiot_client NTP -> $NTP_IP} — undo with: $0 cloud"
     persist_mode "valetudo"
 }
 

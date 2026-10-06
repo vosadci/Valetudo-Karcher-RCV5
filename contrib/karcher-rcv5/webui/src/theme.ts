@@ -10,7 +10,7 @@ const ACCENT_TEXT = "#1a1a1a";
 export const buildTheme = (mode: PaletteMode): Theme => {
     return createTheme({
         palette: {
-            mode,
+            mode: mode,
             primary: {
                 main: ACCENT,
                 dark: ACCENT_DEEP,

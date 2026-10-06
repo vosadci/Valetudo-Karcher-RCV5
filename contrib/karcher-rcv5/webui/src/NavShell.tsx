@@ -65,10 +65,10 @@ const NavShell = (props: {
                                 borderColor: "divider",
                             }}
                         >
-                            <ActionBar inPanel/>
                             <Box sx={{flex: 1, overflow: "auto"}}>
                                 <CleaningOptions/>
                             </Box>
+                            <ActionBar inPanel/>
                         </Box>
                     )}
                 </div>

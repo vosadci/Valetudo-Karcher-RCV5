@@ -76,7 +76,7 @@ const RobotHeader = (): React.ReactElement => {
     const {data: customizations} = useValetudoCustomizationsQuery();
     // Settings > Valetudo Options > Custom Friendly Name, falling back to the robot model.
     const friendlyName = customizations?.friendlyName?.trim();
-    const robotName = friendlyName ? friendlyName : (info?.modelName ?? "Kärcher Robot");
+    const robotName = friendlyName || (info?.modelName ?? "Kärcher Robot");
 
     React.useEffect(() => {
         document.title = robotName;

@@ -26,7 +26,7 @@ const squareButtonSx = {
     borderColor: "divider",
 } as const;
 
-// inPanel: shown at the top of the wide-screen side panel, where the cleaning options are already visible.
+// inPanel: shown at the bottom of the wide-screen side panel, where the cleaning options are already visible.
 const ActionBar = (props: {inPanel?: boolean}): React.ReactElement => {
     const {data: status} = useRobotStatusQuery();
     const target = useCleanTarget((state) => {
@@ -88,8 +88,8 @@ const ActionBar = (props: {inPanel?: boolean}): React.ReactElement => {
                 display: "flex",
                 alignItems: "center",
                 gap: "10px",
-                padding: props.inPanel ? "14px 12px 10px" : "10px 16px calc(14px + env(safe-area-inset-bottom))",
-                [props.inPanel ? "borderBottom" : "borderTop"]: "1px solid",
+                padding: props.inPanel ? "10px 12px 14px" : "10px 16px calc(14px + env(safe-area-inset-bottom))",
+                borderTop: "1px solid",
                 borderColor: "divider",
                 flexShrink: 0,
             }}
