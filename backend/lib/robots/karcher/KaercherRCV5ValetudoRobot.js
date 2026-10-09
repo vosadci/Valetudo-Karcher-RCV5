@@ -411,7 +411,8 @@ class KaercherRCV5ValetudoRobot extends ValetudoRobot {
 
         const map = KaercherMapParser.BUILD_VALETUDO_MAP(this.lastRobotMap, {
             activeSegmentIds: this.activeCleanSegmentIds,
-            trackCurrentRoom: this.lastStatusValue === stateAttrs.StatusStateAttribute.VALUE.CLEANING
+            trackCurrentRoom: this.lastStatusValue === stateAttrs.StatusStateAttribute.VALUE.CLEANING,
+            docked: this.lastStatusValue === stateAttrs.StatusStateAttribute.VALUE.DOCKED
         });
 
         if (map) {
@@ -488,7 +489,7 @@ class KaercherRCV5ValetudoRobot extends ValetudoRobot {
         if (wasRunning && isFinished && this.activeCleanSegmentIds.length > 0) {
             this.activeCleanSegmentIds = [];
             this.rebuildMap();
-        } else if (previous === VALUE.CLEANING) {
+        } else if (previous === VALUE.CLEANING || previous === VALUE.DOCKED || statusValue === VALUE.DOCKED) {
             // No rebuild when cleaning starts: the cached upload's path may still be the
             // previous clean's, so the current room waits for the next upload.
             this.rebuildMap();

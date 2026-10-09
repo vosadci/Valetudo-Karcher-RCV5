@@ -227,6 +227,28 @@ describe("KaercherMapParser", () => {
             assert.strictEqual(map.entities.find(e => e.type === "charger_location"), undefined);
         });
 
+        it("draws the robot at the dock, facing it, when docked", () => {
+            const robotMap = buildRobotMap();
+            robotMap.currentPose = {x: 0.1, y: 0.05, phi: 1.234}; // random while docked
+
+            const map = KaercherMapParser.BUILD_VALETUDO_MAP(robotMap, {docked: true});
+
+            const robot = map.entities.find(e => e.type === "robot_position");
+            // Charger faces north (phi π/2), so the robot sits 15 cm north of it, facing south
+            assert.strictEqual(robot.metaData.angle, 180);
+            assert.deepStrictEqual(robot.points, [20, -15]);
+        });
+
+        it("keeps the reported pose when docked without a charger", () => {
+            const robotMap = buildRobotMap();
+            robotMap.chargeStation = {x: 0, y: 0, phi: 0};
+
+            const map = KaercherMapParser.BUILD_VALETUDO_MAP(robotMap, {docked: true});
+
+            const robot = map.entities.find(e => e.type === "robot_position");
+            assert.strictEqual(robot.metaData.angle, 90);
+        });
+
         it("dedupes a wall's duplicated point pairs into a single 2-point line entity", () => {
             const map = KaercherMapParser.BUILD_VALETUDO_MAP(buildRobotMap());
 

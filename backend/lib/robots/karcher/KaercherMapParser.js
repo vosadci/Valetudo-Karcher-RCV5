@@ -105,6 +105,7 @@ class KaercherMapParser {
      * @param {object} [cleanState]
      * @param {Array<number>} [cleanState.activeSegmentIds]
      * @param {boolean} [cleanState.trackCurrentRoom]
+     * @param {boolean} [cleanState.docked] draw the robot at the dock, see DOCKED_POSE
      * @return {import("../../entities/map/ValetudoMap")|null}
      */
     static BUILD_VALETUDO_MAP(robotMap, cleanState = {}) {
@@ -228,16 +229,22 @@ class KaercherMapParser {
         const entities = [];
         const toValetudo = (x, y) => KaercherMapParser.WORLD_TO_VALETUDO_PIXELS(x, y, head, resolution);
 
-        if (robotMap.currentPose) {
-            const {x, y, phi} = robotMap.currentPose;
+        const hasCharger = robotMap.chargeStation && (robotMap.chargeStation.x !== 0 || robotMap.chargeStation.y !== 0);
+        const robotPose = cleanState.docked === true && hasCharger ?
+            KaercherMapParser.DOCKED_POSE(robotMap.chargeStation) :
+            robotMap.currentPose;
+
+        if (robotPose) {
+            const {x, y, phi} = robotPose;
+            const position = toValetudo(x, y);
             entities.push(new mapEntities.PointMapEntity({
-                points: [toValetudo(x, y).x, toValetudo(x, y).y],
+                points: [position.x, position.y],
                 metaData: {angle: KaercherMapParser.PHI_TO_VALETUDO_ANGLE(phi ?? 0)},
                 type: mapEntities.PointMapEntity.TYPE.ROBOT_POSITION
             }));
         }
 
-        if (robotMap.chargeStation && (robotMap.chargeStation.x !== 0 || robotMap.chargeStation.y !== 0)) {
+        if (hasCharger) {
             const {x, y, phi} = robotMap.chargeStation;
             entities.push(new mapEntities.PointMapEntity({
                 points: [toValetudo(x, y).x, toValetudo(x, y).y],
@@ -615,6 +622,24 @@ class KaercherMapParser {
     }
 
     /**
+     * The robot's reported pose is random while docked. The official app ignores it too and
+     * derives the pose from the charger: DOCKED_OFFSET metres along the charger's phi,
+     * facing the dock (charger phi + π). Same rule as karcher-rcv5-ha `_compute_robot_px`.
+     *
+     * @param {{x: number, y: number, phi?: number}} chargeStation world space
+     * @return {{x: number, y: number, phi: number}}
+     */
+    static DOCKED_POSE(chargeStation) {
+        const phi = chargeStation.phi ?? 0;
+
+        return {
+            x: chargeStation.x + Math.cos(phi) * KaercherMapParser.DOCKED_OFFSET,
+            y: chargeStation.y + Math.sin(phi) * KaercherMapParser.DOCKED_OFFSET,
+            phi: phi + Math.PI
+        };
+    }
+
+    /**
      * Karcher's phi (doc/MAP_DATA.md §5): radians, 0 = east (+X), π/2 = north (+Y), CCW+,
      * in WORLD space. Valetudo's PointMapEntity angle: degrees, 0-360, 0° = north, in
      * (Y-flipped) screen space — same convention every other vendor parser in this repo
@@ -634,6 +659,7 @@ class KaercherMapParser {
     }
 }
 
+KaercherMapParser.DOCKED_OFFSET = 0.15; // metres
 KaercherMapParser.PIXEL_SIZE = 5; // cm; matches the RCV5's 0.05m/cell grid resolution
 // Metres; see CURRENT_ROOM
 KaercherMapParser.ROOM_SWITCH_DISTANCE = 1;
