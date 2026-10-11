@@ -28,10 +28,11 @@ const Protobufs = require("./generated/karcher_protobufs.js");
  * every RCV5 capture taken so far), and AI-detected obstacle markers (`objects`)
  * — ported from the karcher-rcv5-ha HA integration's map_parser.py/map_render.py,
  * which already renders these correctly against a real account/device (that
- * repo's doc/MAP_DATA.md §6.4/§6.7). `areasInfo` (field 10) is deliberately never
- * read: it's the currently-drawn zone-clean rectangle, not a restriction, and the
- * HA integration found the hard way that treating it as one renders a phantom
- * no-go zone.
+ * repo's doc/MAP_DATA.md §6.4/§6.7). `areasInfo` (field 10) is the zone-clean
+ * rectangle, not a restriction (the HA integration found the hard way that treating
+ * it as one renders a phantom no-go zone). It becomes an ACTIVE_ZONE overlay, and
+ * only while `cleanState.zoneClean` is set: the robot keeps the rectangle after the
+ * clean ends.
  */
 class KaercherMapParser {
     /**
@@ -106,6 +107,7 @@ class KaercherMapParser {
      * @param {Array<number>} [cleanState.activeSegmentIds]
      * @param {boolean} [cleanState.trackCurrentRoom]
      * @param {boolean} [cleanState.docked] draw the robot at the dock, see DOCKED_POSE
+     * @param {boolean} [cleanState.zoneClean] a zone clean is running, draw areasInfo
      * @return {import("../../entities/map/ValetudoMap")|null}
      */
     static BUILD_VALETUDO_MAP(robotMap, cleanState = {}) {
@@ -315,6 +317,27 @@ class KaercherMapParser {
                 metaData: {id: String(zone.areaIndex)}
             }));
         });
+
+        if (cleanState.zoneClean === true) {
+            (robotMap.areasInfo ?? []).forEach((area) => {
+                const points = (area.points ?? []).map(p => toValetudo(p.x, p.y));
+                let corners = points;
+
+                if (points.length === 2) {
+                    const [p0, p1] = points;
+                    corners = [p0, {x: p1.x, y: p0.y}, p1, {x: p0.x, y: p1.y}];
+                }
+                if (corners.length < 3) {
+                    return;
+                }
+
+                entities.push(new mapEntities.PolygonMapEntity({
+                    points: corners.flatMap(p => [p.x, p.y]),
+                    type: mapEntities.PolygonMapEntity.TYPE.ACTIVE_ZONE,
+                    metaData: {id: String(area.areaIndex)}
+                }));
+            });
+        }
 
         // Bounding-box CARPET overlay for each room's carpet cells (see
         // segmentCarpetBounds above). Grid coordinates are cell indices, matching

@@ -412,7 +412,8 @@ class KaercherRCV5ValetudoRobot extends ValetudoRobot {
         const map = KaercherMapParser.BUILD_VALETUDO_MAP(this.lastRobotMap, {
             activeSegmentIds: this.activeCleanSegmentIds,
             trackCurrentRoom: this.lastStatusValue === stateAttrs.StatusStateAttribute.VALUE.CLEANING,
-            docked: this.lastStatusValue === stateAttrs.StatusStateAttribute.VALUE.DOCKED
+            docked: this.lastStatusValue === stateAttrs.StatusStateAttribute.VALUE.DOCKED,
+            zoneClean: this.isZoneCleanActive()
         });
 
         if (map) {
