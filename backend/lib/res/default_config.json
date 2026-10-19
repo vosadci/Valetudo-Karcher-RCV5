@@ -39,16 +39,6 @@
         "identity": {
             "identifier": ""
         },
-        "interfaces": {
-            "homie": {
-                "enabled": true,
-                "cleanAttributesOnShutdown": false
-            },
-            "homeassistant": {
-                "enabled": true,
-                "cleanAutoconfOnShutdown": false
-            }
-        },
         "customizations": {
             "topicPrefix": ""
         },

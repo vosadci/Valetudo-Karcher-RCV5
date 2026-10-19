@@ -35,7 +35,7 @@ without any documentation that is also quite time-consuming and mostly involves 
 
 <br/>
 
-Valetudo only runs on the supported robots because security researcher [Dennis Giese](https://dontvacuum.me) found ways
+Valetudo only runs on the supported robots because security researchers such as [Dennis Giese](https://dontvacuum.me) found ways
 to root them.
 
 Rooting in this context means taking these locked-down IoT devices, finding and exploiting security flaws in their design
@@ -104,6 +104,8 @@ The Xiaomi 1C is made by Dreame. It is sold as:
 - Xiaomi 1C
 - STYTJ01ZHM
 
+The serial number should start with `P1904`.
+
 #### Comments
 
 **Important note:** <br/>
@@ -135,6 +137,8 @@ The Xiaomi 1T is made by Dreame. It is sold as:
 - Mi Robot Vacuum-Mop 1T (CN)
 - STYTJ02ZHM
 
+The serial number should start with either `P2041` or `P2074`.
+
 #### Comments
 
 Rooting is pretty easy, only requiring a 3.3v USB UART Adapter, [the Dreame Breakout PCB](https://github.com/Hypfer/valetudo-dreameadapter) and almost no disassembly.
@@ -161,6 +165,8 @@ The Xiaomi P2148 is made by Dreame. It is sold as:
 - Mijia Robot Vacuum Mop Ultra Slim
 - Xiaomi Mijia Ultra-Thin Robot Vacuum
 - Xiaomi Mijia Ultra Slim
+
+The serial number should start with `P2148`.
 
 #### Comments
 
@@ -229,6 +235,8 @@ The Xiaomi Vacuum-Mop 2 Ultra is made by Dreame. It is sold as:
 - Mi Robot Vacuum-Mop 2 Ultra + Auto-empty station
 - BHR5195EU
 
+The serial number should start with either `P2204` or `34264`.
+
 #### Comments
 
 Rooting is pretty easy, only requiring a 3.3v USB UART Adapter, [the Dreame Breakout PCB](https://github.com/Hypfer/valetudo-dreameadapter) and almost no disassembly.
@@ -250,6 +258,8 @@ All warranty seals stay intact.
 The Xiaomi Robot Vacuum X10 Plus is made by Dreame. It is sold as:
 - Xiaomi Robot Vacuum X10 Plus
 - Xiaomi Robot Vacuum X10+
+
+The serial number should start with one of `R2213`, `41717`, `41718`, `41719` or `49743`.
 
 #### Comments
 
@@ -274,6 +284,8 @@ All warranty seals stay intact.
 The Dreame D9 is Dreame's first ever Lidar-based vacuum robot. It is sold as:
 - Dreame D9
 
+The serial number should start with `P2009`.
+
 It is **NOT** sold as the D9 Max. That is an entirely different robot. Only the D9 non-max is supported.<br/>
 To ensure that you get the supported D9, make sure that it has 3 buttons.
 
@@ -297,6 +309,8 @@ All warranty seals stay intact.
 
 The Dreame D9 Pro is sold as:
 - Dreame D9 Pro
+
+The serial number should start with `P2187`.
 
 #### Comments
 
@@ -323,6 +337,8 @@ All warranty seals stay intact.
 The Dreame F9 is sold as:
 - Dreame F9
 
+The serial number should start with `P2008`.
+
 #### Comments
 
 Rooting is pretty easy, only requiring a 3.3v USB UART Adapter, [the Dreame Breakout PCB](https://github.com/Hypfer/valetudo-dreameadapter) and almost no disassembly.
@@ -346,6 +362,8 @@ If you only see weird characters on the UART, try `500000` instead of `115200` a
 The Dreame L10 Pro is sold as:
 - Dreame L10 Pro
 
+The serial number should start with `P2029`.
+
 #### Comments
 
 Rooting is pretty easy, only requiring a 3.3v USB UART Adapter, [the Dreame Breakout PCB](https://github.com/Hypfer/valetudo-dreameadapter) and almost no disassembly.
@@ -368,6 +386,8 @@ The Dreame Z10 Pro is sold as:
 - Dreame Z10 Pro
 - Dreame Bot L10 Plus (CN)
 
+The serial number should start with `P2028`.
+
 #### Comments
 
 Rooting is pretty easy, only requiring a 3.3v USB UART Adapter, [the Dreame Breakout PCB](https://github.com/Hypfer/valetudo-dreameadapter) and almost no disassembly.
@@ -388,6 +408,8 @@ All warranty seals stay intact.
 
 The Dreame W10 is sold as:
 - Dreame W10
+
+The serial number should start with `P2027`.
 
 #### Comments
 
@@ -414,6 +436,8 @@ One useful trick to solve that is this: `sleep 300 && ./install.sh`. With that, 
 
 The Dreame W10 Pro is sold as:
 - Dreame W10 Pro
+
+The serial number should start with `R2104`.
 
 #### Comments
 
@@ -446,10 +470,7 @@ If you're rooting your W10 Pro, just run that command before setting up Valetudo
 The Dreame L10s Ultra is sold as:
 - Dreame L10s Ultra
 
-It is **not sold** as the L10s Ultra **Gen2**.<br/>
-That's a completely different robot with a confusing name that is **not** supported.
-
-You can tell the L10s Ultra from the unsupported but confusingly similar named L10 Ultra or the L10s Ultra Gen2 by its AI obstacle avoidance camera + the lack of an extendable mop.
+The serial number should start with `R2228`.
 
 #### Comments
 
@@ -472,8 +493,7 @@ All warranty seals stay intact.
 The Dreame D10s Pro is sold as:
 - Dreame D10s Pro
 
-It is **NOT** sold as the D10s without the "Pro". That is an entirely different robot. Only the "Pro" is supported.<br/>
-To ensure that you get the supported "Pro", make sure that it has 3 buttons.
+The serial number should start with `R2250`.
 
 #### Comments
 
@@ -496,8 +516,7 @@ All warranty seals stay intact.
 The Dreame D10s Plus is sold as:
 - Dreame D10s Plus
 
-It is **NOT** sold as the D10 Plus without the "s". That is an entirely different robot. Only the "s" is supported.<br/>
-To ensure that you get the supported "s", make sure that it has 3 buttons.
+The serial number should start with `R2240`.
 
 #### Comments
 
@@ -520,14 +539,16 @@ All warranty seals stay intact.
 The Dreame L10s Pro Ultra Heat is sold as:
 - Dreame L10s Pro Ultra Heat
 
+The serial number should start with `R2338`.
+
 #### Comments
 Rooting is relatively easy. Usage of [the Dreame Breakout PCB](https://github.com/Hypfer/valetudo-dreameadapter) is highly recommended.
 All warranty seals stay intact.
 
 If the robot fails to dock or you cannot select any operating modes after rooting:
 1. Dock it manually. Make sure that it is charging
-2. Head to the dustbuilder
-3. Build a firmware for manual install via SSH
+2. Head to the Dustfab
+3. Build a new patched firmware as an Installer package
 4. SSH into the robot
 5. Install the built firmware
 
@@ -604,6 +625,8 @@ After that, you will have to reconfigure Wi-Fi using Valetudo.
 The Dreame X30 Ultra is sold as:
 - Dreame X30 Ultra
 
+The serial number should start with `R9316`.
+
 #### Comments
 
 Rooting is relatively easy. Usage of [the Dreame Breakout PCB](https://github.com/Hypfer/valetudo-dreameadapter) is highly recommended.
@@ -630,11 +653,7 @@ After that, you will have to reconfigure Wi-Fi using Valetudo.
 The Dreame L40 Ultra is sold as:
 - Dreame L40 Ultra
 
-It is **not sold** as the L40 Ultra **AE** nor as the L40**s Pro Ultra** nor any other name that isn't exactly this one.<br/>
-Those are all completely different robots with confusing names that are **not** supported.
-
-Additionally, Dreame has started selling "L40" that are actually just rebadged "L10s Pro Gen3" in some markets, capitalizing on the good online reputation of the "L40" name.<br/>
-That, too, is a different unsupported robot + the vendor trying to rip you off.
+The serial number should start with `R2492`.
 
 #### Comments
 
@@ -675,6 +694,8 @@ The Dreame X40 Ultra is sold as:
 - Dreame X40 Ultra
 - Dreame X40 Ultra Complete
 
+The serial number should start with either `R2416` or `R2449`.
+
 #### Comments
 
 Rooting is relatively easy. Usage of [the Dreame Breakout PCB](https://github.com/Hypfer/valetudo-dreameadapter) is highly recommended.
@@ -712,6 +733,8 @@ deviceIds, which are unexpected for miio. To solve that:
 
 The Dreame X40 Master is sold as:
 - Dreame X40 Master
+
+The serial number should start with `R2465`.
 
 #### Comments
 
@@ -757,6 +780,8 @@ MOVA is a sub-brand(?) of Dreame
 The MOVA Z500 is made by Dreame. It is sold as:
 - MOVA Z500
 
+The serial number should start with `P2156`.
+
 #### Comments
 
 Rooting is pretty easy, only requiring a 3.3v USB UART Adapter, [the Dreame Breakout PCB](https://github.com/Hypfer/valetudo-dreameadapter) and almost no disassembly.
@@ -777,6 +802,8 @@ All warranty seals stay intact.
 
 The Mova S20 Ultra is sold as:
 - Mova S20 Ultra
+
+The serial number should start with `R2385`.
 
 #### Comments
 
@@ -807,6 +834,8 @@ The Mova P10 Pro Ultra is sold as:
 
 It is **NOT** sold as the P10 Ultra. That is a different robot.
 
+The serial number should start with `R2491`.
+
 #### Comments
 
 Rooting is relatively easy. Usage of [the Dreame Breakout PCB](https://github.com/Hypfer/valetudo-dreameadapter) is highly recommended.
@@ -820,6 +849,71 @@ All warranty seals stay intact.
 #### Rooting instructions
 
 - [Fastboot](/pages/installation/dreame/#fastboot)
+
+
+### V50 Ultra
+
+<img src="../img/robots/mova/mova_v50ultra.jpg" width="1300" height="325"/>
+
+The Mova V50 Ultra is sold as:
+- Mova V50 Ultra
+- Mova V50 Ultra Complete
+
+The serial number should start with either `R2582` or `R2525`.
+
+#### Comments
+
+**Important Note:**<br/>
+The public root for this robot has just been released.<br/>
+This makes it not unlikely that we've missed something or that there might be yet unanticipated issues.<br/>
+You have been warned
+
+Rooting is relatively easy. Usage of [the Dreame Breakout PCB](https://github.com/Hypfer/valetudo-dreameadapter) is highly recommended.
+
+Note that these newer robots are less forgiving than older ones. If you mess up during the rooting procedure, recovery requires pulling the battery,
+which is an action that requires destruction of warranty seals.
+
+#### Details
+
+**Valetudo Binary**: `aarch64`
+**Secure Boot**: `yes`
+
+#### Rooting instructions
+
+- [Fastboot](/pages/installation/dreame/#fastboot)
+
+### Z60 Ultra Roller
+
+<img src="../img/robots/mova/mova_z60ultraroller.jpg" width="1300" height="325"/>
+
+The Mova Z60 Ultra Roller is sold as:
+- Mova Z60 Ultra Roller Complete
+
+It is **NOT** sold as the Z60 Ultra Roller Standalone. That is a different (unsupported) robot with worse features.
+
+The serial number should start with `R9540`.
+
+#### Comments
+
+**Important Note:**<br/>
+The public root for this robot has just been released.<br/>
+This makes it not unlikely that we've missed something or that there might be yet unanticipated issues.<br/>
+You have been warned
+
+Rooting is relatively easy. Usage of [the Dreame Breakout PCB](https://github.com/Hypfer/valetudo-dreameadapter) is highly recommended.
+
+Note that these newer robots are less forgiving than older ones. If you mess up during the rooting procedure, recovery requires pulling the battery,
+which is an action that requires destruction of warranty seals.
+
+#### Details
+
+**Valetudo Binary**: `aarch64`
+**Secure Boot**: `yes`
+
+#### Rooting instructions
+
+- [Fastboot](/pages/installation/dreame/#fastboot)
+
 
 
 

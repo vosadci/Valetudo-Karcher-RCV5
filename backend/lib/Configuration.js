@@ -86,6 +86,7 @@ class Configuration {
                     // BEGIN migration code to be removed with the next version
 
                     delete(parsedConfig.mqtt?.customizations?.provideMapData);
+                    delete(parsedConfig.mqtt?.interfaces);
 
                     // END migration code to be removed with the next version
 

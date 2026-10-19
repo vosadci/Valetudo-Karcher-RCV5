@@ -295,16 +295,6 @@ class ValetudoRouter {
             customizations: {
                 topicPrefix: obj.customizations.topicPrefix
             },
-            interfaces: {
-                homie: {
-                    enabled: obj.interfaces.homie.enabled,
-                    cleanAttributesOnShutdown: obj.interfaces.homie.cleanAttributesOnShutdown
-                },
-                homeassistant: {
-                    enabled: obj.interfaces.homeassistant.enabled,
-                    cleanAutoconfOnShutdown: obj.interfaces.homeassistant.cleanAutoconfOnShutdown
-                }
-            },
             optionalExposedCapabilities: Array.isArray(obj.optionalExposedCapabilities) ? [...new Set(obj.optionalExposedCapabilities)] : []
         };
     }

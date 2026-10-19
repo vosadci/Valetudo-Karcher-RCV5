@@ -107,9 +107,6 @@ class FakeHassController extends HassController {
     async refresh(component, topics) {
     }
 
-    async dropAutoconf(component) {
-    }
-
     async refreshAutoconf(component, payload) {
     }
 }
@@ -698,16 +695,6 @@ class FakeMqttController extends MqttController {
                 "friendlyName": "Valetudo Robot",
                 "identifier": "<IDENTIFIER>"
             },
-            "interfaces": {
-                "homie": {
-                    "enabled": true,
-                    "cleanAttributesOnShutdown": false
-                },
-                "homeassistant": {
-                    "enabled": true,
-                    "cleanAutoconfOnShutdown": false
-                }
-            },
             "customizations": {
                 "topicPrefix": "<TOPIC PREFIX>"
             },
@@ -729,9 +716,6 @@ class FakeMqttController extends MqttController {
     }
 
     async shutdown() {
-    }
-
-    async dropHomieAttributes(handle) {
     }
 
     stopAutorefreshService() {
