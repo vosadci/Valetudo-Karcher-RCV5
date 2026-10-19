@@ -30,6 +30,7 @@ describe("KaercherStateDerivation", () => {
                 [5, 0, 1, 0, "docked"], // GO_HOME + docked via charge_state
 
                 [0, 0, 0, 0, "idle"],
+                [2, 0, 0, 0, "idle"], // manual drive
                 [14, 0, 0, 0, "idle"],
                 [35, 0, 0, 0, "idle"],
                 [85, 0, 0, 0, "idle"],

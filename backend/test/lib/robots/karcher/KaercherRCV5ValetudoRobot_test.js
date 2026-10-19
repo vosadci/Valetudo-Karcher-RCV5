@@ -35,6 +35,7 @@ describe("KaercherRCV5ValetudoRobot", () => {
                 "DoNotDisturbCapability",
                 "FanSpeedControlCapability",
                 "LocateCapability",
+                "ManualControlCapability",
                 "MapSegmentEditCapability",
                 "MapSegmentRenameCapability",
                 "MapSegmentationCapability",

@@ -220,6 +220,7 @@ class KaercherRCV5ValetudoRobot extends ValetudoRobot {
             capabilities.KaercherSpeakerTestCapability,
             capabilities.KaercherSpeakerVolumeControlCapability,
             capabilities.KaercherLocateCapability,
+            capabilities.KaercherManualControlCapability,
             capabilities.KaercherConsumableMonitoringCapability,
             capabilities.KaercherCurrentStatisticsCapability,
             capabilities.KaercherTotalStatisticsCapability,
