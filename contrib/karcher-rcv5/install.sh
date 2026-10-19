@@ -4,7 +4,8 @@
 # wrapper scripts, dev certs, an on-device README, and the boot trampoline. Never touches
 # config.json/device-identity.json/mode if they already exist (those hold
 # state this script has no business overwriting). Ends with the robot still
-# in stock/cloud behavior — run activate.sh separately to switch it live.
+# in whatever mode it was in (stock on a fresh robot) — run activate.sh
+# separately to switch it live.
 #
 # Runs on the Mac, drives the robot over ssh/scp. Usage: ./install.sh <robot-ip-or-host>
 #
@@ -65,6 +66,26 @@ report_runtime_state "$REMOTE"
 
 ssh "${SSH_OPTS[@]}" "$REMOTE" "mkdir -p $REMOTE_DIR $REMOTE_TRAMPOLINE_DIR"
 
+# Replacing a running binary can fail ("text file busy"), so stop Valetudo first
+# and start it again once the new binary is verified.
+WAS_RUNNING=0
+TMP_VERIFY=""
+cleanup() {
+    rm -f "$TMP_VERIFY"
+    if [ "$WAS_RUNNING" = 1 ]; then
+        warn "WARNING: Valetudo was running before this install and is now stopped."
+        warn "  Start it again with: ssh $REMOTE $REMOTE_DIR/S96valetudo start"
+    fi
+}
+trap cleanup EXIT
+
+if ssh "${SSH_OPTS[@]}" "$REMOTE" "pidof valetudo >/dev/null"; then
+    WAS_RUNNING=1
+    echo "== Stopping running Valetudo =="
+    ssh "${SSH_OPTS[@]}" "$REMOTE" "$REMOTE_DIR/S96valetudo stop; for i in 1 2 3 4 5 6 7 8 9 10; do pidof valetudo >/dev/null || exit 0; sleep 1; done; exit 1" \
+        || { err "ERROR: Valetudo did not stop within 10s"; exit 1; }
+fi
+
 echo "== Pushing executables and dev certs =="
 for item in "${PUSH_ITEMS[@]}"; do
     src="${item%%|*}"
@@ -90,7 +111,6 @@ echo "== Pushing + verifying Valetudo binary (34MB, may take a while) =="
 scp "${SSH_OPTS[@]}" "$BINARY" "$REMOTE:$REMOTE_DIR/valetudo.new"
 ssh "${SSH_OPTS[@]}" "$REMOTE" "mv $REMOTE_DIR/valetudo.new $REMOTE_DIR/valetudo && chmod +x $REMOTE_DIR/valetudo"
 TMP_VERIFY="$(mktemp)"
-trap 'rm -f "$TMP_VERIFY"' EXIT
 scp "${SSH_OPTS[@]}" "$REMOTE:$REMOTE_DIR/valetudo" "$TMP_VERIFY"
 if cmp -s "$BINARY" "$TMP_VERIFY"; then
     echo "OK: on-device binary matches $BINARY exactly"
@@ -99,7 +119,13 @@ else
     exit 1
 fi
 
-echo "== Ensuring irreplaceable backups exist on-device (robot stays fully stock — no mode change happens here) =="
+if [ "$WAS_RUNNING" = 1 ]; then
+    echo "== Starting Valetudo again =="
+    ssh "${SSH_OPTS[@]}" "$REMOTE" "$REMOTE_DIR/S96valetudo start"
+    WAS_RUNNING=0
+fi
+
+echo "== Ensuring irreplaceable backups exist on-device (no mode change happens here) =="
 ssh "${SSH_OPTS[@]}" "$REMOTE" "$REMOTE_DIR/karcher-cloud-switch.sh backup"
 
 echo "== Pulling backups to $BACKUP_DIR (durable off-device copy, survives a factory reset) =="
@@ -149,5 +175,10 @@ echo "== Post-install runtime state (should be unchanged from pre-existing) =="
 report_runtime_state "$REMOTE"
 
 echo
-ok "install.sh complete. Robot is still in stock/cloud mode — nothing has been redirected."
-ok "Run ./activate.sh $HOST when you're ready to switch it into valetudo mode."
+MODE="$(ssh "${SSH_OPTS[@]}" "$REMOTE" "cat $REMOTE_DIR/mode 2>/dev/null" || true)"
+if [ "$MODE" = valetudo ]; then
+    ok "install.sh complete. Robot is in valetudo mode — mode unchanged by this install."
+else
+    ok "install.sh complete. Robot is in stock/cloud mode — nothing has been redirected."
+    ok "Run ./activate.sh $HOST when you're ready to switch it into valetudo mode."
+fi

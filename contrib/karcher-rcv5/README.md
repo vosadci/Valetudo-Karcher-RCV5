@@ -256,7 +256,8 @@ Run ./activate.sh <robot-ip> when you're ready to switch it into valetudo mode.
 
 Safe to re-run any time (e.g. after rebuilding the binary) — it never
 touches `config.json`, `device-identity.json`, or the current mode, only the
-binary/scripts/certs.
+binary/scripts/certs. If Valetudo is running, it stops it before the copy and
+starts it again once the new binary is verified.
 
 If it fails partway (e.g. dropped connection during the 34MB binary push),
 just run it again.
