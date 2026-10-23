@@ -63,7 +63,7 @@ const ActionBar = (props: {inPanel?: boolean}): React.ReactElement => {
         startAction = () => {
             cleanRooms({segment_ids: target.segments, iterations: target.iterations, customOrder: target.customOrder});
         };
-    } else if (status?.flag === "resumable") {
+    } else if (status?.flag === "resumable" || state === "paused") {
         primaryLabel = "Resume";
     } else if (target?.kind === "zone") {
         primaryLabel = "Clean zone";
