@@ -204,7 +204,7 @@ const FAULT_MESSAGES = Object.freeze({
 
 /**
  * Lifecycle status codes the real app excludes from its error dialog (shown in a
- * status text widget instead, e.g. "Self-checking", "Relocalizing"). Source:
+ * status text widget instead, e.g. "Self-checking", "Locating"). Source:
  * `ControlMainActivity.java`'s `isStatusNoThisFault()`, APK v1.4.32 — the exact
  * set karcher-rcv5-ha's `NON_ERROR_FAULT_CODES` (const.py) ships and verified
  * exhaustively there; ported verbatim rather than re-derived from doc/PROTOCOL.md's
@@ -248,7 +248,7 @@ const STATUS_MESSAGES = Object.freeze({
     2105: "Charging complete",
     2106: "Charging wait interrupted",
     2107: "Scheduled clean in progress",
-    2108: "Relocalizing",
+    2108: "Locating",
     2109: "Repeat cleaning in progress",
     2110: "Self-checking"
 });

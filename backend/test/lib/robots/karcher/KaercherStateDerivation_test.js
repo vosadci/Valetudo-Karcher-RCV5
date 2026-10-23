@@ -92,7 +92,7 @@ describe("KaercherStateDerivation", () => {
 
             assert.strictEqual(result.value, "returning");
             assert.strictEqual(result.faultCode, undefined);
-            assert.strictEqual(result.statusMessage, "Relocalizing");
+            assert.strictEqual(result.statusMessage, "Locating");
         });
 
         it("surfaces statusMessage while cleaning (e.g. a scheduled/repeat clean in progress)", () => {
