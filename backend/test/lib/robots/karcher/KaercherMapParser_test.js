@@ -114,6 +114,72 @@ describe("KaercherMapParser", () => {
         });
     });
 
+    describe("PARSE_CUR_PATH", () => {
+        it("reads a real two-pose push, numbering the poses from the start id", () => {
+            // Real RCV5 capture, 2026-10-03
+            const poses = KaercherMapParser.PARSE_CUR_PATH([
+                2, -0.033150173723697662, -0.047330018132925034, 0.523682951927185, 0,
+                -0.038504261523485184, -0.048139002174139023, 1.1209954023361206, 0, 1791036371
+            ]);
+
+            assert.deepStrictEqual(poses.map(p => p.id), [2, 3]);
+            assert.strictEqual(poses[1].x, -0.038504261523485184);
+            assert.strictEqual(poses[1].phi, 1.1209954023361206);
+        });
+
+        it("rejects arrays that are not whole poses plus an id and a timestamp", () => {
+            assert.strictEqual(KaercherMapParser.PARSE_CUR_PATH([1, 0, 0, 0, 0]), null);
+            assert.strictEqual(KaercherMapParser.PARSE_CUR_PATH([1, 0, 0, 0, 0, 0, 5]), null);
+            assert.strictEqual(KaercherMapParser.PARSE_CUR_PATH("nope"), null);
+            assert.strictEqual(KaercherMapParser.PARSE_CUR_PATH([1, 0, 0, "x", 0, 5]), null);
+        });
+    });
+
+    describe("APPEND_LIVE_POSES", () => {
+        it("moves the robot marker to the newest pose and extends the path", () => {
+            const map = KaercherMapParser.BUILD_VALETUDO_MAP(buildRobotMap());
+
+            KaercherMapParser.APPEND_LIVE_POSES(map, [{id: 1, x: 0.1, y: 0.05, phi: 0}, {id: 2, x: 0.15, y: 0.05, phi: Math.PI / 2}]);
+
+            const robot = map.entities.filter(e => e.type === "robot_position");
+            assert.strictEqual(robot.length, 1);
+            assert.deepStrictEqual(robot[0].points, [15, 10]);
+            assert.strictEqual(robot[0].metaData.angle, 0); // facing north
+
+            const path = map.entities.find(e => e.type === "path");
+            assert.deepStrictEqual(path.points, [0, 15, 5, 15, 10, 10, 15, 10]);
+        });
+
+        it("changes the nonce so the frontend redraws", () => {
+            const map = KaercherMapParser.BUILD_VALETUDO_MAP(buildRobotMap());
+            const before = map.metaData.nonce;
+
+            KaercherMapParser.APPEND_LIVE_POSES(map, [{id: 1, x: 0.1, y: 0.05, phi: 0}]);
+
+            assert.notStrictEqual(map.metaData.nonce, before);
+        });
+
+        it("adds the robot and path entities when the upload had neither", () => {
+            const robotMap = buildRobotMap();
+            delete robotMap.currentPose;
+            delete robotMap.historyPose;
+            const map = KaercherMapParser.BUILD_VALETUDO_MAP(robotMap);
+
+            KaercherMapParser.APPEND_LIVE_POSES(map, [{id: 1, x: 0.1, y: 0.05, phi: 0}]);
+
+            assert.deepStrictEqual(map.entities.find(e => e.type === "robot_position").points, [10, 10]);
+            assert.deepStrictEqual(map.entities.find(e => e.type === "path").points, [10, 10]);
+        });
+
+        it("does nothing without poses", () => {
+            const map = KaercherMapParser.BUILD_VALETUDO_MAP(buildRobotMap());
+
+            KaercherMapParser.APPEND_LIVE_POSES(map, []);
+
+            assert.deepStrictEqual(map.entities.find(e => e.type === "path").points, [0, 15, 5, 15]);
+        });
+    });
+
     describe("VALETUDO_PIXELS_TO_WORLD", () => {
         const head = {minX: -1.5, minY: 2, sizeY: 80};
         const resolution = 0.05;

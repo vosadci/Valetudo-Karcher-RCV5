@@ -1,3 +1,4 @@
+const crypto = require("crypto");
 const KaercherConst = require("./KaercherConst");
 const KaercherMapCrypto = require("./KaercherMapCrypto");
 const Logger = require("../../Logger");
@@ -601,6 +602,73 @@ class KaercherMapParser {
         }
 
         return {segmentId: current, travelling: false};
+    }
+
+    /**
+     * The robot pushes `cur_path` as `[startPoseId, x, y, phi, flag, ..., unixTs]` roughly once a second
+     * while cleaning (doc/MAP_DATA.md §6.6). Pose ids count up by one per pose.
+     *
+     * @param {unknown} raw
+     * @return {Array<{id: number, x: number, y: number, phi: number}>|null}
+     */
+    static PARSE_CUR_PATH(raw) {
+        if (!Array.isArray(raw) || raw.length < 6 || (raw.length - 2) % 4 !== 0 || !raw.every(Number.isFinite)) {
+            return null;
+        }
+
+        const poses = [];
+
+        for (let i = 1; i < raw.length - 1; i += 4) {
+            poses.push({id: raw[0] + (i - 1) / 4, x: raw[i], y: raw[i + 1], phi: raw[i + 2]});
+        }
+
+        return poses;
+    }
+
+    /**
+     * Moves the robot marker to the newest pose and extends the path, in place.
+     * The frontend only redraws when the map's nonce changes, so this refreshes it.
+     *
+     * @param {import("../../entities/map/ValetudoMap")} map
+     * @param {Array<{x: number, y: number, phi: number}>} poses oldest first
+     */
+    static APPEND_LIVE_POSES(map, poses) {
+        const origin = map.metaData.worldOrigin;
+
+        if (!origin || poses.length === 0) {
+            return;
+        }
+
+        map.metaData.nonce = crypto.randomUUID();
+
+        const converted = poses.map((pose) => {
+            return KaercherMapParser.WORLD_TO_VALETUDO_PIXELS(pose.x, pose.y, origin, origin.resolution);
+        });
+        const last = converted[converted.length - 1];
+        const angle = KaercherMapParser.PHI_TO_VALETUDO_ANGLE(poses[poses.length - 1].phi);
+
+        const robot = map.entities.find(e => e.type === mapEntities.PointMapEntity.TYPE.ROBOT_POSITION);
+        if (robot) {
+            robot.points = [last.x, last.y];
+            robot.metaData.angle = angle;
+        } else {
+            map.entities.push(new mapEntities.PointMapEntity({
+                points: [last.x, last.y],
+                metaData: {angle: angle},
+                type: mapEntities.PointMapEntity.TYPE.ROBOT_POSITION
+            }));
+        }
+
+        const flat = converted.flatMap(c => [c.x, c.y]);
+        const path = map.entities.find(e => e.type === mapEntities.PathMapEntity.TYPE.PATH);
+        if (path) {
+            path.points.push(...flat);
+        } else {
+            map.entities.push(new mapEntities.PathMapEntity({
+                points: flat,
+                type: mapEntities.PathMapEntity.TYPE.PATH
+            }));
+        }
     }
 
     /**

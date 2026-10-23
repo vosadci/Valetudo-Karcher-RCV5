@@ -50,6 +50,9 @@ class KaercherRCV5ValetudoRobot extends ValetudoRobot {
         // changes between uploads (the robot may stop uploading once it docks).
         this.lastRobotMap = null;
         this.lastStatusValue = undefined;
+        // Poses pushed via cur_path since the last map upload, about once a second
+        /** @type {Array<{id: number, x: number, y: number, phi: number}>} */
+        this.livePoses = [];
         // Driving between rooms during a clean, from the last map's path (KaercherMapParser.CURRENT_ROOM)
         /** @type {string|undefined} e.g. "Moving to Bedroom" */
         this.travellingMessage = undefined;
@@ -132,6 +135,10 @@ class KaercherRCV5ValetudoRobot extends ValetudoRobot {
                     if (envelope?.method === "prop.post" && envelope.params) {
                         this.parseAndUpdateState(envelope.params);
                         this.notifyPropPostWaiters(envelope.params);
+
+                        if (envelope.params.cur_path !== undefined) {
+                            this.handleCurPath(envelope.params.cur_path);
+                        }
                     } else if (topic.endsWith("/service/property/get_reply") && envelope?.code === 0 && envelope.data) {
                         // Reply to sendPropertyGet() — a different envelope shape entirely
                         // ({code, data}, not {method, params}), confirmed against
@@ -398,8 +405,49 @@ class KaercherRCV5ValetudoRobot extends ValetudoRobot {
 
         if (robotMap) {
             this.lastRobotMap = robotMap;
+            this.dropCoveredLivePoses(robotMap);
             this.rebuildMap();
         }
+    }
+
+    /**
+     * @private
+     * @param {object} robotMap the map upload just decoded
+     */
+    dropCoveredLivePoses(robotMap) {
+        const coveredUpTo = robotMap.historyPose?.poseId ?? -1;
+
+        this.livePoses = this.livePoses.filter(pose => pose.id > coveredUpTo);
+    }
+
+    /**
+     * Map uploads arrive about every 10 s. The robot also pushes its newest poses about once
+     * a second, so move the marker and extend the path from those in between.
+     *
+     * @private
+     * @param {unknown} rawCurPath
+     */
+    handleCurPath(rawCurPath) {
+        const poses = KaercherMapParser.PARSE_CUR_PATH(rawCurPath);
+
+        if (
+            !poses ||
+            !this.state.map.metaData.worldOrigin ||
+            this.lastStatusValue === stateAttrs.StatusStateAttribute.VALUE.DOCKED
+        ) {
+            return;
+        }
+
+        const lastKnown = this.livePoses[this.livePoses.length - 1];
+        if (lastKnown && poses[0].id <= lastKnown.id) {
+            this.livePoses = [];
+        }
+
+        this.livePoses.push(...poses);
+        this.livePoses.splice(0, this.livePoses.length - KaercherRCV5ValetudoRobot.MAX_LIVE_POSES);
+
+        KaercherMapParser.APPEND_LIVE_POSES(this.state.map, poses);
+        this.emitMapUpdated();
     }
 
     /**
@@ -418,6 +466,7 @@ class KaercherRCV5ValetudoRobot extends ValetudoRobot {
         });
 
         if (map) {
+            KaercherMapParser.APPEND_LIVE_POSES(map, this.livePoses);
             this.state.map = map;
             this.emitMapUpdated();
 
@@ -484,6 +533,10 @@ class KaercherRCV5ValetudoRobot extends ValetudoRobot {
             return;
         }
         this.lastStatusValue = statusValue;
+
+        if (statusValue === stateAttrs.StatusStateAttribute.VALUE.DOCKED) {
+            this.livePoses = [];
+        }
 
         const wasRunning = [VALUE.CLEANING, VALUE.PAUSED, VALUE.RETURNING, VALUE.MOVING].includes(previous);
         const isFinished = [VALUE.IDLE, VALUE.DOCKED].includes(statusValue);
@@ -1235,6 +1288,8 @@ KaercherRCV5ValetudoRobot.BIND_IP = KaercherAiotDummycloud.BIND_IP;
 
 /** Upper bound on how long a prop.set waits for the robot's prop.post echo. */
 KaercherRCV5ValetudoRobot.SET_ECHO_TIMEOUT_MS = 1500;
+/** Poses kept between map uploads (1-2 per second), well over the ~10 s upload gap. */
+KaercherRCV5ValetudoRobot.MAX_LIVE_POSES = 1000;
 KaercherRCV5ValetudoRobot.MAP_LIST_TIMEOUT_MS = 5000;
 KaercherRCV5ValetudoRobot.SNAPSHOT_RETRY_MS = 5000;
 KaercherRCV5ValetudoRobot.SNAPSHOT_MAX_RETRIES = 12;

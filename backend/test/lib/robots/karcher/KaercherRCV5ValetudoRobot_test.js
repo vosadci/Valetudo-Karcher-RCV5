@@ -206,6 +206,72 @@ describe("KaercherRCV5ValetudoRobot", () => {
         assert.strictEqual(robot.ephemeralState.privacy.carpet_avoid, 1);
     });
 
+    describe("live poses", () => {
+        function robotWithMap() {
+            const robot = buildRobot();
+            robot.lastRobotMap = {
+                mapHead: {mapHeadId: 1, sizeX: 4, sizeY: 3, minX: 0, minY: 0, resolution: 0.05},
+                mapData: {mapData: Buffer.alloc(12, 10)},
+                currentPose: {x: 0.025, y: 0.025, phi: 0},
+                historyPose: {poseId: 3, points: [{x: 0, y: 0, update: true}]},
+                roomDataInfo: [{roomId: 10, roomName: "Kitchen"}]
+            };
+            robot.parseAndUpdateState({work_mode: 1, status: 1});
+            robot.rebuildMap();
+
+            return robot;
+        }
+
+        function robotMarker(robot) {
+            return robot.state.map.entities.find(e => e.type === "robot_position");
+        }
+
+        it("moves the marker and emits a map update on each cur_path push", () => {
+            const robot = robotWithMap();
+            let updates = 0;
+            robot.onMapUpdated(() => updates++);
+
+            robot.handleCurPath([4, 0.1, 0.05, 0, 0, 1791036371]);
+
+            assert.deepStrictEqual(robotMarker(robot).points, [10, 10]);
+            assert.strictEqual(updates, 1);
+        });
+
+        it("keeps the live poses through a rebuild and drops those a map upload already covers", () => {
+            const robot = robotWithMap();
+            robot.handleCurPath([4, 0.1, 0.05, 0, 0, 1791036371]);
+            robot.handleCurPath([5, 0.15, 0.05, 0, 0, 1791036372]);
+
+            robot.rebuildMap();
+            assert.deepStrictEqual(robotMarker(robot).points, [15, 10]);
+
+            robot.dropCoveredLivePoses({historyPose: {poseId: 4}});
+            assert.deepStrictEqual(robot.livePoses.map(p => p.id), [5]);
+        });
+
+        it("starts over when the pose ids go backwards", () => {
+            const robot = robotWithMap();
+            robot.handleCurPath([40, 0.1, 0.05, 0, 0, 1791036371]);
+            robot.handleCurPath([1, 0.05, 0.05, 0, 0, 1791036999]);
+
+            assert.deepStrictEqual(robot.livePoses.map(p => p.id), [1]);
+        });
+
+        it("ignores malformed pushes and anything while docked", () => {
+            const robot = robotWithMap();
+            let updates = 0;
+            robot.onMapUpdated(() => updates++);
+
+            robot.handleCurPath([4, 0.1, 0.05]);
+            robot.parseAndUpdateState({work_mode: 0, status: 4});
+            updates = 0;
+            robot.handleCurPath([4, 0.1, 0.05, 0, 0, 1791036371]);
+
+            assert.strictEqual(updates, 0);
+            assert.deepStrictEqual(robot.livePoses, []);
+        });
+    });
+
     describe("room clean marks", () => {
         // One room (id 10) in a 2x1 grid, the robot standing in it
         function robotMapWithRoom() {
