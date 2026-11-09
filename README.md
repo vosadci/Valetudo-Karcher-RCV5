@@ -3,8 +3,11 @@
     <p align="center"><h2>Free your vacuum from the cloud</h2></p>
 </div>
 
-> **This is a fork, only for the Kärcher RCV5.** For setup on that robot, see
+> # This is a fork, only for the Kärcher RCV5.
+> # Do NOT bother upstream Valetudo with issues !!!
+> For setup on the Kärcher RCV5 robot, see
 > [contrib/karcher-rcv5/README.md](contrib/karcher-rcv5/README.md).
+> Everything bellow is unchanged from upstream. Changes are mostly in contrib/
 
 Valetudo is a cloud replacement for vacuum robots enabling local-only operation. It is not a custom firmware.<br/>
 Here's a diagram illustrating the core operation principle:
