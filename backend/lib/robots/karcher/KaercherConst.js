@@ -160,6 +160,10 @@ const AI_OBJECT_TYPE_LABELS = Object.freeze({
  * here — severity/subsystem classification per-code is deliberately not attempted
  * (would be guesswork beyond what's documented); ValetudoRobotError falls back to
  * UNKNOWN/UNKNOWN for all of them.
+ *
+ * 523, 527, 530 and 531 follow the APK's RobotError.java names. The app's own UI strings
+ * disagree (523 filter anomaly, 527 blocked, 530/531 2-in-1 tank) and the firmware does
+ * not settle it. Codes for other models (wash station, 2-in-1 tank, roller) are left out.
  */
 const FAULT_MESSAGES = Object.freeze({
     100: "Hardware driver error",
@@ -193,6 +197,40 @@ const FAULT_MESSAGES = Object.freeze({
     527: "Dust box full",
     530: "Battery temperature abnormal",
     531: "Battery temperature returned to normal",
+    533: "Turned off after excess standby time",
+    534: "Turned off, battery low",
+    550: "Battery temperature abnormal",
+    551: "Battery temperature returned to normal",
+    559: "Failed to create map",
+    560: "Side brush abnormal",
+    561: "Visual recognition sensor abnormal",
+    562: "Edge infrared sensor abnormal",
+    563: "Dust box removed",
+    565: "Laser sensor obscured",
+    566: "Water tank removed",
+    567: "Brush overcurrent protection",
+    568: "Left wheel abnormal",
+    569: "Right wheel abnormal",
+    570: "Main brush abnormal",
+    572: "Robot in restricted area",
+    573: "Fan abnormal",
+    574: "Lidar entangled or stuck",
+    588: "Robot might be on a carpet",
+    589: "Failed to relocate",
+    590: "Dust container emptying failed: check station cover and filter",
+    591: "Dust container emptying failed: replace filter bag",
+    592: "Dust container emptying failed: station filter cleaning",
+    593: "Dust container emptying failed: station cover open",
+    594: "Dust container emptying failed: filter bag missing",
+    595: "Dust container emptying failed",
+    596: "Dust container emptying failed",
+    604: "Dust container emptying already started",
+    611: "Failed to relocate",
+    612: "Failed to relocate: map changed",
+    700: "Unable to reach target area",
+    2012: "Unable to reach some areas",
+    2014: "Carpet detection abnormal",
+    2114: "Dust box needs cleaning after 15 hours of use",
     2000: "Dust box full",
     2001: "Left brush blocked",
     2002: "Right brush blocked",
