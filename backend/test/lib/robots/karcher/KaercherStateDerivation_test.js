@@ -170,4 +170,23 @@ describe("KaercherStateDerivation", () => {
             assert.strictEqual(KaercherStateDerivation.deriveBatteryFlag({}), "discharging");
         });
     });
+
+    describe("deriveStatusFlag", () => {
+        it("is 'zone' while cleaning or paused in the zone work_mode family", () => {
+            assert.strictEqual(KaercherStateDerivation.deriveStatusFlag({work_mode: 30}, "cleaning"), "zone");
+            assert.strictEqual(KaercherStateDerivation.deriveStatusFlag({work_mode: 31}, "paused"), "zone");
+        });
+
+        it("is 'none' when returning, docked or idle, even in a zone work_mode", () => {
+            assert.strictEqual(KaercherStateDerivation.deriveStatusFlag({work_mode: 32}, "returning"), "none");
+            assert.strictEqual(KaercherStateDerivation.deriveStatusFlag({work_mode: 32}, "docked"), "none");
+            assert.strictEqual(KaercherStateDerivation.deriveStatusFlag({work_mode: 35}, "idle"), "none");
+        });
+
+        it("is 'none' for non-zone work_modes", () => {
+            assert.strictEqual(KaercherStateDerivation.deriveStatusFlag({work_mode: 1}, "cleaning"), "none");
+            assert.strictEqual(KaercherStateDerivation.deriveStatusFlag({work_mode: 4}, "paused"), "none");
+            assert.strictEqual(KaercherStateDerivation.deriveStatusFlag({}, "cleaning"), "none");
+        });
+    });
 });

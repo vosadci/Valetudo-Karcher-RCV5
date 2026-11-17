@@ -116,7 +116,29 @@ function deriveBatteryFlag(ephemeralState) {
     return stateAttrs.BatteryStateAttribute.FLAG.DISCHARGING;
 }
 
+/**
+ * ZONE while a zone clean is running or paused. Returning is left unflagged, like
+ * Viomi. The work_mode family comes from the APK (IotBase.getCleanMode == 6) and is
+ * not device-verified.
+ *
+ * @param {object} ephemeralState
+ * @param {import("../../entities/state/attributes/StatusStateAttribute").StatusStateAttributeValue} value
+ * @return {import("../../entities/state/attributes/StatusStateAttribute").StatusStateAttributeFlag}
+ */
+function deriveStatusFlag(ephemeralState, value) {
+    const flaggable = [
+        stateAttrs.StatusStateAttribute.VALUE.CLEANING,
+        stateAttrs.StatusStateAttribute.VALUE.PAUSED
+    ].includes(value);
+
+    if (flaggable && KaercherConst.ZONE_WORK_MODES.includes(ephemeralState.work_mode)) {
+        return stateAttrs.StatusStateAttribute.FLAG.ZONE;
+    }
+    return stateAttrs.StatusStateAttribute.FLAG.NONE;
+}
+
 module.exports = {
     deriveStatus: deriveStatus,
+    deriveStatusFlag: deriveStatusFlag,
     deriveBatteryFlag: deriveBatteryFlag
 };

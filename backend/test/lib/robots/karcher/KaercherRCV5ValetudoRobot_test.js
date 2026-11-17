@@ -367,6 +367,21 @@ describe("KaercherRCV5ValetudoRobot", () => {
         });
     });
 
+    describe("status flag", () => {
+        it("follows the zone work_mode family and clears afterwards", () => {
+            const robot = buildRobot();
+            const flagAfter = (push) => {
+                robot.parseAndUpdateState(push);
+                return robot.state.getFirstMatchingAttribute({attributeClass: "StatusStateAttribute"}).flag;
+            };
+
+            assert.strictEqual(flagAfter({status: 0, work_mode: 30}), "zone");
+            assert.strictEqual(flagAfter({work_mode: 31}), "zone");
+            assert.strictEqual(flagAfter({work_mode: 32}), "none");
+            assert.strictEqual(flagAfter({work_mode: 1}), "none");
+        });
+    });
+
     describe("isZoneCleanActive", () => {
         it("is true only for the zone-clean work_mode family (30/31/32)", () => {
             const robot = buildRobot();
