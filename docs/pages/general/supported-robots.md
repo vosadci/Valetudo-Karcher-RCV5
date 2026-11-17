@@ -873,6 +873,14 @@ Rooting is relatively easy. Usage of [the Dreame Breakout PCB](https://github.co
 Note that these newer robots are less forgiving than older ones. If you mess up during the rooting procedure, recovery requires pulling the battery,
 which is an action that requires destruction of warranty seals.
 
+
+If post-root the Wi-Fi doesn't want to come up even after pressing and holding the two buttons + the bot speaking to you,
+the system might be in a weird state due to our rooting.
+
+It is not yet clear what exactly is going on, but one thing you can try to fix this is to re-enter fastboot, but, instead of flashing, reboot via the helper right away.
+That seems to help in many cases.
+
+
 #### Details
 
 **Valetudo Binary**: `aarch64`
@@ -904,6 +912,12 @@ Rooting is relatively easy. Usage of [the Dreame Breakout PCB](https://github.co
 
 Note that these newer robots are less forgiving than older ones. If you mess up during the rooting procedure, recovery requires pulling the battery,
 which is an action that requires destruction of warranty seals.
+
+If post-root the Wi-Fi doesn't want to come up even after pressing and holding the two buttons + the bot speaking to you,
+the system might be in a weird state due to our rooting.
+
+It is not yet clear what exactly is going on, but one thing you can try to fix this is to re-enter fastboot, but, instead of flashing, reboot via the helper right away.
+That seems to help in many cases.
 
 #### Details
 
@@ -1107,20 +1121,6 @@ The Roborock Q7 Max is sold as:
 - Roborock Q7 Max+
 
 #### Comments
-
-**2024-09-28 Update**<br/>
-Starting with robots manufactured somewhere around Q2 2024, Roborock switched to SkyHigh-brand NAND on their newly produced Q7 Max.
-Unfortunately, after dumping quite a few days into it, we haven't been able to get the rooting procedure working with said NAND.
-
-Thus, if you pick up a factory new Q7 Max then chances are that it's not rootable anymore.
-The rooting procedure is still safe. It doesn't brick the robot; it just doesn't work.
-
-You'll only find out that it's SkyHigh NAND once you've disassembled the robot and thus can't return it to the seller anymore.
-Thus, right now your options are:
-- Buying a used Q7 Max
-- Buying from a seller that doesn't move much inventory still selling older Q7 Max
-- Buying something else that is supported by Valetudo
-
 
 Rooting requires full disassembly.
 
