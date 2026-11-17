@@ -6,7 +6,7 @@
 > # This is a fork, only for the Kärcher RCV5.
 > This is work in progress, and cannot be used as is. 
 > This project does NOT include rooting the RCV 5.
-> There is no easy / public method for rooting this robot.
+> There is no simple / reliable / safe method for rooting this robot.
 > When / if I find one, I'll update this. 
 > # Do NOT bother upstream Valetudo with issues !!!
 > For setup on an already rooted Kärcher RCV5 robot, see
